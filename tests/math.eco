@@ -1,0 +1,52 @@
+use std::math;
+
+test layouts_match_c
+{
+    assert(mem::size<bt::Vec3>() == 12);
+    assert(mem::size<bt::Quat>() == 16);
+    assert(mem::size<bt::Transform>() == 28);
+}
+
+test version
+{
+    assert(bt::version() == 325);
+}
+
+test quat_identity_by_default
+{
+    bt::Quat $q = bt::Quat();
+    assert($q->w == 1.0f);
+    bt::Vec3 $v = $q->rotate(bt::Vec3(1.0f, 2.0f, 3.0f));
+    assert(near($v->x, 1.0f) && near($v->y, 2.0f) && near($v->z, 3.0f));
+}
+
+test quat_axis_angle_rotates
+{
+    bt::Quat $q = bt::Quat(axis: bt::Vec3(0.0f, 1.0f, 0.0f), math::HALF_PI_F32);
+    bt::Vec3 $v = $q->rotate(bt::Vec3(1.0f, 0.0f, 0.0f));
+    assert(near($v->x, 0.0f) && near($v->z, -1.0f));
+}
+
+test quat_product_composes
+{
+    bt::Quat $quarter = bt::Quat(axis: bt::Vec3(0.0f, 0.0f, 1.0f), math::HALF_PI_F32);
+    bt::Vec3 $v = ($quarter * $quarter)->rotate(bt::Vec3(1.0f, 0.0f, 0.0f));
+    assert(near($v->x, -1.0f) && near($v->y, 0.0f));
+}
+
+test transform_matrix_is_column_major
+{
+    bt::Transform $t = bt::Transform(bt::Vec3(1.0f, 2.0f, 3.0f));
+    fixed_array<float32, 16> $m = $t->matrix();
+    assert($m[0] == 1.0f && $m[5] == 1.0f && $m[10] == 1.0f && $m[15] == 1.0f);
+    assert($m[12] == 1.0f && $m[13] == 2.0f && $m[14] == 3.0f);
+}
+
+test vec3_operators
+{
+    bt::Vec3 $v = bt::Vec3(1.0f, 2.0f, 2.0f);
+    assert(near($v->length(), 3.0f));
+    bt::Vec3 $w = ($v + $v - $v) * 2.0f;
+    assert($w->x == 2.0f && $w->y == 4.0f && $w->z == 4.0f);
+    assert(near(bt::Vec3()->normalized()->length(), 0.0f));
+}

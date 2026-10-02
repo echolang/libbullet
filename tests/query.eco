@@ -1,0 +1,151 @@
+/**
+ * Three static boxes in a row along +X at x = 2, 4 and 6, the middle one
+ * in its own group.
+ */
+internal function row(bt::World $world) : array<bt::Body>
+{
+    bt::Shape $crate = bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f));
+    array<bt::Body> $out = array<bt::Body>();
+
+    for (int32 $i = 1; $i <= 3; $i++) {
+        bt::Body $b = bt::Body($crate, at: bt::Transform(bt::Vec3(($i as float32) * 2.0f, 0.0f, 0.0f)));
+        if ($i == 2) {
+            assert(!$world->add($b, group: bt::Layer(bit: 6))->failed());
+        } else {
+            assert(!$world->add($b)->failed());
+        }
+        $out[] = $b;
+    }
+
+    return $out;
+}
+
+test rays_are_sorted_nearest_first
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $row = row($world);
+
+    array<bt::RayHit> $hits = $world->rays(bt::Vec3(), bt::Vec3(10.0f, 0.0f, 0.0f));
+    assert($hits->count() == 3);
+    assert(near($hits[0]->point->x, 1.5f));
+    assert(near($hits[1]->point->x, 3.5f));
+    assert(near($hits[2]->point->x, 5.5f));
+    assert($hits[0]->body->id() == $row[0]->id());
+    assert($hits[0]->fraction < $hits[1]->fraction);
+}
+
+test mask_filters_a_ray
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $row = row($world);
+
+    bt::Layer $mine = bt::Layer(bit: 6);
+    bt::RayHit $only = guard $world->ray(bt::Vec3(), bt::Vec3(10.0f, 0.0f, 0.0f), mask: $mine) else {
+        die('expected the middle box');
+    }
+    assert($only->body->id() == $row[1]->id());
+
+    bt::RayHit $skip = guard $world->ray(bt::Vec3(), bt::Vec3(10.0f, 0.0f, 0.0f), mask: bt::Layer::all()->without($mine)) else {
+        die('expected the first box');
+    }
+    assert($skip->body->id() == $row[0]->id());
+
+    assert($world->rays(bt::Vec3(), bt::Vec3(10.0f, 0.0f, 0.0f), mask: bt::Layer::none())->empty());
+    assert(($mine | bt::Layer::standard())->has(bt::Layer::standard()));
+}
+
+test sweep_stops_at_the_wall
+{
+    bt::World $world = bt::World();
+    row($world);
+
+    bt::Shape $ball = bt::Shape(sphere: 0.5f);
+    result<bt::SweepHit?, bt::Error> $r = $world->sweep(
+        $ball,
+        from: bt::Transform(bt::Vec3(0.0f, 0.0f, 0.0f)),
+        to: bt::Transform(bt::Vec3(10.0f, 0.0f, 0.0f))
+    );
+    bt::SweepHit? $maybe = guard $r else ($e) {
+        die("{$e}");
+    }
+    bt::SweepHit $hit = guard $maybe else {
+        die('expected a hit');
+    }
+
+    // the ball's centre stops a radius short of the face at x = 1.5
+    assert(near($hit->fraction, 0.1f, 0.01f));
+    assert(near($hit->point->x, 1.5f, 0.05f));
+    assert(near($hit->normal->x, -1.0f, 0.05f));
+
+    bt::SweepHit? $miss = guard $world->sweep($ball, from: bt::Transform(bt::Vec3(0.0f, 5.0f, 0.0f)), to: bt::Transform(bt::Vec3(10.0f, 5.0f, 0.0f))) else ($e) {
+        die("{$e}");
+    }
+    assert($miss == null);
+
+    assert($world->sweep(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)), from: bt::Transform(), to: bt::Transform())->failed());
+}
+
+test overlap_and_box_queries
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $row = row($world);
+
+    array<bt::Body> $near = $world->overlap(bt::Shape(sphere: 1.2f), at: bt::Transform(bt::Vec3(3.0f, 0.0f, 0.0f)));
+    assert($near->count() == 2);
+
+    array<bt::Body> $none = $world->overlap(bt::Shape(sphere: 0.2f), at: bt::Transform(bt::Vec3(3.0f, 0.0f, 0.0f)));
+    assert($none->empty());
+
+    bt::Aabb $box = bt::Aabb(bt::Vec3(3.0f, -1.0f, -1.0f), bt::Vec3(7.0f, 1.0f, 1.0f));
+    assert($world->bodies(inside: $box)->count() == 2);
+    assert($world->bodies(inside: $box, mask: bt::Layer(bit: 6))->count() == 1);
+    assert($world->bodies()->count() == 3);
+}
+
+test groups_decide_who_collides
+{
+    bt::World $world = bt::World();
+    bt::Layer $ghosts = bt::Layer(bit: 7);
+    bt::Body $floor = bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)));
+    assert(!$world->add($floor, group: bt::Layer::fixed(), mask: bt::Layer::all()->without($ghosts))->failed());
+
+    bt::Body $ghost = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+    assert(!$world->add($ghost, group: $ghosts, mask: bt::Layer::all())->failed());
+    bt::Body $solid = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(3.0f, 2.0f, 0.0f)));
+    assert(!$world->add($solid)->failed());
+
+    run($world, 120);
+    assert(near($solid->position()->y, 0.5f, 0.05f));
+    assert($ghost->position()->y < -2.0f);
+}
+
+test ignore_skips_one_body
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $row = row($world);
+
+    bt::RayHit $past = guard $world->ray(bt::Vec3(), bt::Vec3(10.0f, 0.0f, 0.0f), ignore: $row[0]) else {
+        die('expected the second box');
+    }
+    assert($past->body->id() == $row[1]->id());
+
+    // a ray cast from inside the body it ignores passes out through it
+    bt::RayHit $out = guard $world->ray(bt::Vec3(2.0f, 0.0f, 0.0f), bt::Vec3(10.0f, 0.0f, 0.0f), ignore: $row[0]) else {
+        die('expected the second box');
+    }
+    assert(near($out->point->x, 3.5f));
+
+    bt::Shape $ball = bt::Shape(sphere: 0.25f);
+    bt::SweepHit? $swept = guard $world->sweep(
+        $ball,
+        from: bt::Transform(bt::Vec3()),
+        to: bt::Transform(bt::Vec3(10.0f, 0.0f, 0.0f)),
+        ignore: $row[0]
+    ) else ($e) {
+        die("{$e}");
+    }
+    bt::SweepHit $hit = guard $swept else {
+        die('expected a sweep hit');
+    }
+    assert($hit->body->id() == $row[1]->id());
+}

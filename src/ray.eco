@@ -1,0 +1,27 @@
+/**
+ * What a ray cast or a shape sweep found. `fraction` is how far along
+ * from -> to the hit is, 0 to 1. `normal` is the hit surface's, pointing
+ * back at the query.
+ */
+
+namespace bt;
+
+public struct RayHit
+{
+    public const Body $body;
+    public const Vec3 $point;
+    public const Vec3 $normal;
+    public const float32 $fraction;
+}
+
+/**
+ * The swept shape stops touching `$body` at `$point`, `$fraction` of the
+ * way from its start to its end transform.
+ */
+public struct SweepHit
+{
+    public const Body $body;
+    public const Vec3 $point;
+    public const Vec3 $normal;
+    public const float32 $fraction;
+}

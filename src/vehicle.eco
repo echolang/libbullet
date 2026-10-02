@@ -1,0 +1,249 @@
+/**
+ * A car: Bullet's raycast vehicle. A rigid chassis with wheels that are
+ * rays, not bodies, each with its own suspension spring and tyre grip.
+ * Cheap, stable, and what most driving games use.
+ */
+
+namespace bt;
+
+public class Vehicle
+{
+    internal const ptr<eco_bt_vehicle> $raw;
+    public const Body $chassis;
+
+    /**
+     * Build it around a dynamic `$chassis`, then `add` the wheels. Add the
+     * chassis to a world, then the vehicle.
+     */
+    public constructor(Body $chassis)
+    {
+        $this->chassis = $chassis;
+        $this->raw = live(cVehicleCreate($chassis->raw), 'out of memory creating a vehicle');
+    }
+
+    destructor()
+    {
+        cVehicleDestroy($this->raw);
+    }
+
+    /**
+     * Attach a wheel and get back its index for the calls below.
+     */
+    public function add(Wheel $wheel) : usize
+    {
+        $raw = $wheel->raw();
+        return cVehicleAddWheel($this->raw, &$raw) as usize;
+    }
+
+    public const function wheelCount() : usize
+    {
+        return cVehicleWheelCount($this->raw) as usize;
+    }
+
+    /**
+     * Where wheel `$index` is and what it is doing, for drawing it.
+     */
+    public const function wheel(usize $index) : WheelState
+    {
+        $raw = RawWheelState();
+        cVehicleWheelState($this->raw, $this->index($index), &$raw);
+        return WheelState($raw);
+    }
+
+    /**
+     * Turn a wheel, in radians about the up axis.
+     */
+    public function setSteering(usize $wheel, float32 $radians) : void
+    {
+        cVehicleSetSteering($this->raw, $this->index($wheel), $radians);
+    }
+
+    /**
+     * Drive a wheel with `$force` along the forward axis. Negative
+     * reverses.
+     */
+    public function setEngine(usize $wheel, float32 $force) : void
+    {
+        cVehicleSetEngine($this->raw, $this->index($wheel), $force);
+    }
+
+    public function setBrake(usize $wheel, float32 $force) : void
+    {
+        cVehicleSetBrake($this->raw, $this->index($wheel), $force);
+    }
+
+    /**
+     * Forward speed in km/h, negative when reversing.
+     */
+    public const function speed() : float32
+    {
+        return cVehicleSpeed($this->raw);
+    }
+
+    /**
+     * The chassis' forward axis in world space.
+     */
+    public const function forward() : Vec3
+    {
+        $out = Vec3();
+        cVehicleForward($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Which of the chassis' local axes point right, up and forward. X, Y,
+     * Z by default.
+     */
+    public function setAxes(right: Axis $right, up: Axis $up, forward: Axis $forward) : void
+    {
+        cVehicleSetAxes($this->raw, $right->value(), $up->value(), $forward->value());
+    }
+
+    /**
+     * Put every suspension back at rest, after a teleport.
+     */
+    public function reset() : void
+    {
+        cVehicleReset($this->raw);
+    }
+
+    internal const function inWorld() : bool
+    {
+        return cVehicleInWorld($this->raw) != 0;
+    }
+
+    private const function index(usize $wheel) : int32
+    {
+        if ($wheel >= $this->wheelCount()) {
+            die("bt: wheel {$wheel} is out of range");
+        }
+
+        return $wheel as int32;
+    }
+}
+
+/**
+ * A wheel as it is attached. Positions and directions are in the
+ * chassis' local space; the defaults suit a Y-up car driving along Z.
+ */
+public struct Wheel
+{
+    /**
+     * Where the suspension meets the chassis.
+     */
+    public Vec3 $connection;
+
+    /**
+     * The way the suspension extends, usually down.
+     */
+    public Vec3 $direction = Vec3(0.0f, -1.0f, 0.0f);
+
+    /**
+     * The axle the wheel spins about.
+     */
+    public Vec3 $axle = Vec3(-1.0f, 0.0f, 0.0f);
+
+    public float32 $restLength = 0.6f;
+    public float32 $radius = 0.5f;
+
+    /**
+     * Front wheels are the ones you usually steer. Bullet only uses it for
+     * bookkeeping.
+     */
+    public bool $front = false;
+
+    /**
+     * Spring stiffness, and damping while the spring compresses and while
+     * it relaxes.
+     */
+    public float32 $stiffness = 5.88f;
+    public float32 $compression = 0.83f;
+    public float32 $relaxation = 0.88f;
+
+    /**
+     * Tyre grip. Higher holds the road harder; around 1 lets it drift.
+     */
+    public float32 $frictionSlip = 10.5f;
+
+    /**
+     * How much of the sideways force rolls the chassis, 0 to 1. Low keeps
+     * a top heavy car from tipping.
+     */
+    public float32 $rollInfluence = 0.1f;
+
+    public float32 $maxTravelCm = 500.0f;
+    public float32 $maxForce = 6000.0f;
+
+    internal const function raw() : RawWheel
+    {
+        $out = RawWheel();
+        $out->connection = $this->connection;
+        $out->direction = $this->direction;
+        $out->axle = $this->axle;
+        $out->restLength = $this->restLength;
+        $out->radius = $this->radius;
+        $out->stiffness = $this->stiffness;
+        $out->compression = $this->compression;
+        $out->relaxation = $this->relaxation;
+        $out->frictionSlip = $this->frictionSlip;
+        $out->rollInfluence = $this->rollInfluence;
+        $out->maxTravelCm = $this->maxTravelCm;
+        $out->maxForce = $this->maxForce;
+        $out->front = $this->front as uint32;
+        return $out;
+    }
+}
+
+/**
+ * A wheel as it is now.
+ */
+public struct WheelState
+{
+    /**
+     * The wheel's world transform, spin and steering included.
+     */
+    public const Transform $transform;
+
+    /**
+     * Where the wheel touches the ground, and the ground's normal there.
+     */
+    public const Vec3 $contactPoint;
+    public const Vec3 $contactNormal;
+
+    /**
+     * How far the wheel has spun, in radians.
+     */
+    public const float32 $rotation;
+    public const float32 $steering;
+
+    /**
+     * The suspension's current length.
+     */
+    public const float32 $suspension;
+
+    /**
+     * Grip left: 1 holds, towards 0 skids.
+     */
+    public const float32 $skid;
+    public const float32 $engine;
+    public const float32 $brake;
+
+    /**
+     * Whether the wheel is on the ground.
+     */
+    public const bool $contact;
+
+    internal constructor(const RawWheelState& $raw)
+    {
+        $this->transform = $raw->transform;
+        $this->contactPoint = $raw->contactPoint;
+        $this->contactNormal = $raw->contactNormal;
+        $this->rotation = $raw->rotation;
+        $this->steering = $raw->steering;
+        $this->suspension = $raw->suspension;
+        $this->skid = $raw->skid;
+        $this->engine = $raw->engine;
+        $this->brake = $raw->brake;
+        $this->contact = $raw->contact != 0;
+    }
+}

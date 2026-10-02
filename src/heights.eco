@@ -1,0 +1,30 @@
+/**
+ * Heights a heightfield shape reads in place instead of copying. For a
+ * terrain that already lives in memory, such as a game's heightmap, a
+ * copy would double it.
+ */
+
+namespace bt;
+
+/**
+ * A grid of `width` x `length` heights, row by row, owned by someone
+ * else. The shape keeps the source alive, so `heights()` must point at
+ * storage that neither moves nor shrinks while the source lives: a
+ * fixed-size array, never one that grows.
+ *
+ * `low` and `high` are the extremes the shape is built over. Answer them
+ * from a cache: the shape asks once, and Bullet centres the field
+ * halfway between them.
+ */
+public interface HeightSamples
+{
+    const function width() : int32;
+
+    const function length() : int32;
+
+    const function heights() : ptr<const float32>;
+
+    const function low() : float32;
+
+    const function high() : float32;
+}

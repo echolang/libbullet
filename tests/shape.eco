@@ -1,0 +1,300 @@
+test box_inertia
+{
+    bt::Shape $box = bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f));
+    bt::Vec3 $dynamic = $box->inertia(1.0f);
+    assert($dynamic->x > 0.0f && $dynamic->y > 0.0f && $dynamic->z > 0.0f);
+    bt::Vec3 $static = $box->inertia(0.0f);
+    assert($static->x == 0.0f && $static->y == 0.0f && $static->z == 0.0f);
+}
+
+test every_primitive_builds
+{
+    bt::Shape $a = bt::Shape(sphere: 0.5f);
+    bt::Shape $b = bt::Shape(capsule: 0.25f, height: 1.0f);
+    bt::Shape $c = bt::Shape(capsule: 0.25f, height: 1.0f, axis: .x);
+    bt::Shape $d = bt::Shape(cylinder: bt::Vec3(0.5f, 1.0f, 0.5f), axis: .z);
+    bt::Shape $e = bt::Shape(cone: 0.5f, height: 1.0f);
+    bt::Shape $f = bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f), constant: 2.0f);
+    assert($a->inertia(1.0f)->x > 0.0f);
+    assert($b->inertia(1.0f)->x > 0.0f);
+    assert($c->inertia(1.0f)->x > 0.0f);
+    assert($d->inertia(1.0f)->x > 0.0f);
+    assert($e->inertia(1.0f)->x > 0.0f);
+    assert($f->inertia(1.0f)->x == 0.0f);
+}
+
+test scaling_roundtrip
+{
+    bt::Shape $s = bt::Shape(sphere: 1.0f);
+    $s->setScaling(bt::Vec3(2.0f, 2.0f, 2.0f));
+    bt::Vec3 $v = $s->scaling();
+    assert($v->x == 2.0f && $v->y == 2.0f && $v->z == 2.0f);
+}
+
+test hull_from_points
+{
+    array<bt::Vec3> $points = [
+        bt::Vec3(-1.0f, 0.0f, -1.0f),
+        bt::Vec3(1.0f, 0.0f, -1.0f),
+        bt::Vec3(0.0f, 0.0f, 1.0f),
+        bt::Vec3(0.0f, 1.0f, 0.0f),
+        bt::Vec3(0.0f, 0.2f, 0.0f)
+    ];
+    bt::Shape $hull = guard bt::Shape::hull($points) else ($e) {
+        die("{$e}");
+    }
+    assert($hull->inertia(1.0f)->y > 0.0f);
+}
+
+test hull_refuses_no_points
+{
+    array<bt::Vec3> $none = array<bt::Vec3>();
+    result<bt::Shape, bt::Error> $r = bt::Shape::hull($none);
+    assert($r->failed());
+    bt::Error $e = $r->failure();
+    match ($e) {
+        bt::Error::emptyHull => {},
+        else => { assert(false, 'expected emptyHull'); },
+    };
+}
+
+test heightfield_checks_size
+{
+    array<float32> $heights = [0.0f, 1.0f, 2.0f];
+    result<bt::Shape, bt::Error> $r = bt::Shape::heightfield(2, 2, $heights);
+    assert($r->failed());
+    bt::Error $e = $r->failure();
+    assert("{$e}" == 'expected 4 values, got 3');
+}
+
+test heightfield_checks_dimensions
+{
+    array<float32> $heights = [0.0f];
+    result<bt::Shape, bt::Error> $r = bt::Shape::heightfield(1, 1, $heights);
+    assert($r->failed());
+    bt::Error $e = $r->failure();
+    match ($e) {
+        bt::Error::badDimensions($w, $l) => { assert($w == 1 && $l == 1); },
+        else => { assert(false, 'expected badDimensions'); },
+    };
+}
+
+test kinds_and_convexity
+{
+    assert(bt::Shape(sphere: 1.0f)->kind() == bt::ShapeKind::sphere);
+    assert(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f))->kind() == bt::ShapeKind::box);
+    assert(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f))->kind() == bt::ShapeKind::plane);
+    assert(bt::Shape()->kind() == bt::ShapeKind::empty);
+    assert(bt::Shape(sphere: 1.0f)->convex());
+    assert(!bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f))->convex());
+}
+
+test margin_aabb_and_bounds
+{
+    bt::Shape $ball = bt::Shape(sphere: 2.0f);
+    bt::Aabb $box = $ball->aabb(at: bt::Transform(bt::Vec3(10.0f, 0.0f, 0.0f)));
+    assert(near($box->min->x, 8.0f, 0.1f));
+    assert(near($box->max->x, 12.0f, 0.1f));
+    // Bullet grows the bounding sphere from the box, so it is loose
+    assert($ball->bounds()->radius >= 2.0f);
+    assert(near($ball->bounds()->centre->x, 0.0f));
+
+    bt::Shape $crate = bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f));
+    $crate->setMargin(0.01f);
+    assert(near($crate->margin(), 0.01f, 0.001f));
+}
+
+/**
+ * A 20 x 20 floor at y = 0 as two triangles.
+ */
+internal function floorMesh() : result<bt::Shape, bt::Error>
+{
+    array<bt::Vec3> $v = [
+        bt::Vec3(-10.0f, 0.0f, -10.0f),
+        bt::Vec3(10.0f, 0.0f, -10.0f),
+        bt::Vec3(10.0f, 0.0f, 10.0f),
+        bt::Vec3(-10.0f, 0.0f, 10.0f)
+    ];
+    array<int32> $i = [0, 2, 1, 0, 3, 2];
+    return bt::Shape::mesh($v, $i);
+}
+
+test ball_rests_on_a_mesh
+{
+    bt::Shape $floor = guard floorMesh() else ($e) {
+        die("{$e}");
+    }
+    assert($floor->kind() == bt::ShapeKind::mesh);
+
+    bt::World $world = bt::World();
+    assert(!$world->add(bt::Body($floor))->failed());
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(1.0f, 3.0f, 1.0f)));
+    assert(!$world->add($ball)->failed());
+
+    run($world, 180);
+    assert(near($ball->position()->y, 0.5f, 0.05f));
+}
+
+test mesh_is_static_only
+{
+    bt::Shape $floor = guard floorMesh() else ($e) {
+        die("{$e}");
+    }
+
+    bt::World $world = bt::World();
+    status<bt::Error> $s = $world->add(bt::Body($floor, 1.0f));
+    assert($s->failed());
+    bt::Error $e = $s->failure();
+    match ($e) {
+        bt::Error::staticOnly => {},
+        else => { assert(false, 'expected staticOnly'); },
+    };
+
+    bt::Body $moved = bt::Body($floor, 1.0f);
+    $moved->setKinematic(true);
+    assert(!$world->add($moved)->failed());
+}
+
+test bad_meshes_are_refused
+{
+    array<bt::Vec3> $v = [bt::Vec3(), bt::Vec3(1.0f, 0.0f, 0.0f), bt::Vec3(0.0f, 0.0f, 1.0f)];
+    array<int32> $none = array<int32>();
+    array<int32> $short = [0, 1];
+    array<int32> $wild = [0, 1, 3];
+
+    assert(bt::Shape::mesh($v, $none)->failed());
+    assert(bt::Shape::mesh($v, $short)->failed());
+
+    result<bt::Shape, bt::Error> $r = bt::Shape::gimpact($v, $wild);
+    assert($r->failed());
+    bt::Error $e = $r->failure();
+    match ($e) {
+        bt::Error::badIndex($index, $count) => {
+            assert($index == 3 && $count == 3);
+        },
+        else => { assert(false, 'expected badIndex'); },
+    };
+}
+
+test compound_rests_on_its_widest_child
+{
+    // a dumbbell: two unit spheres two units apart on a thin bar
+    bt::Shape $end = bt::Shape(sphere: 1.0f);
+    bt::Shape $bar = bt::Shape(box: bt::Vec3(1.0f, 0.1f, 0.1f));
+    array<bt::Child> $parts = [
+        bt::Child($end, bt::Transform(bt::Vec3(-2.0f, 0.0f, 0.0f))),
+        bt::Child($end, bt::Transform(bt::Vec3(2.0f, 0.0f, 0.0f))),
+        bt::Child($bar)
+    ];
+    bt::Shape $dumbbell = bt::Shape(compound: $parts);
+    assert($dumbbell->kind() == bt::ShapeKind::compound);
+    assert($dumbbell->children->count() == 3);
+    assert(!$dumbbell->convex());
+
+    bt::World $world = groundWorld();
+    bt::Body $body = bt::Body($dumbbell, 2.0f, at: bt::Transform(bt::Vec3(0.0f, 4.0f, 0.0f)));
+    assert(!$world->add($body)->failed());
+    run($world, 240);
+    assert(near($body->position()->y, 1.0f, 0.1f));
+
+    assert(!$dumbbell->setChild(2, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)))->failed());
+    assert($dumbbell->setChild(9, at: bt::Transform())->failed());
+    assert($bar->setChild(0, at: bt::Transform())->failed());
+}
+
+test gimpact_body_falls_and_lands
+{
+    // a tetrahedron as a concave-capable mesh
+    array<bt::Vec3> $v = [
+        bt::Vec3(0.0f, 1.0f, 0.0f),
+        bt::Vec3(-1.0f, -0.5f, -1.0f),
+        bt::Vec3(1.0f, -0.5f, -1.0f),
+        bt::Vec3(0.0f, -0.5f, 1.0f)
+    ];
+    array<int32> $i = [0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2];
+    bt::Shape $tet = guard bt::Shape::gimpact($v, $i) else ($e) {
+        die("{$e}");
+    }
+    assert($tet->kind() == bt::ShapeKind::gimpact);
+
+    bt::World $world = bt::World();
+    assert(!$world->add(bt::Body(bt::Shape(box: bt::Vec3(10.0f, 0.5f, 10.0f)), at: bt::Transform(bt::Vec3(0.0f, -0.5f, 0.0f))))->failed());
+    bt::Body $body = bt::Body($tet, 1.0f, at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    assert(!$world->add($body)->failed());
+    run($world, 240);
+    assert($body->position()->y > 0.2f && $body->position()->y < 1.2f);
+}
+
+test spheres_and_simplified_hulls
+{
+    array<bt::Vec3> $centres = [bt::Vec3(0.0f, -1.0f, 0.0f), bt::Vec3(0.0f, 1.0f, 0.0f)];
+    array<float32> $radii = [0.5f, 0.5f];
+    bt::Shape $pill = guard bt::Shape::spheres($centres, radii: $radii) else ($e) {
+        die("{$e}");
+    }
+    assert($pill->kind() == bt::ShapeKind::spheres);
+    assert(near($pill->aabb()->max->y, 1.5f, 0.1f));
+
+    array<float32> $one = [0.5f];
+    assert(bt::Shape::spheres($centres, radii: $one)->failed());
+
+    // a dense ring of points, simplified
+    array<bt::Vec3> $ring = array<bt::Vec3>();
+    for (int32 $k = 0; $k < 200; $k++) {
+        float32 $a = ($k as float32) * 0.0314f;
+        $ring[] = bt::Vec3(std::math::cos($a), (($k % 2) as float32) * 0.5f, std::math::sin($a));
+    }
+    bt::Shape $hull = guard bt::Shape::hull($ring, simplify: true) else ($e) {
+        die("{$e}");
+    }
+    assert($hull->kind() == bt::ShapeKind::hull);
+    assert(near($hull->aabb()->max->x, 1.0f, 0.15f));
+
+    // simplifying samples the points without the margin, so it adds none
+    bt::Shape $full = guard bt::Shape::hull($ring) else ($e) {
+        die("{$e}");
+    }
+    assert($hull->aabb()->max->x <= $full->aabb()->max->x + 0.001f);
+    assert(near($hull->margin(), $full->margin(), 0.0001f));
+}
+
+test degenerate_points_survive_simplifying
+{
+    // too few distinct points for the rebuild, so the optimized hull stays
+    array<bt::Vec3> $line = [bt::Vec3(-1.0f, 0.0f, 0.0f), bt::Vec3(0.0f, 0.0f, 0.0f), bt::Vec3(1.0f, 0.0f, 0.0f)];
+    array<bt::Vec3> $one = [bt::Vec3(1.0f, 0.0f, 0.0f)];
+    array<bt::Vec3> $same = [bt::Vec3(1.0f, 0.0f, 0.0f), bt::Vec3(1.0f, 0.0f, 0.0f), bt::Vec3(1.0f, 0.0f, 0.0f)];
+    array<array<bt::Vec3>> $clouds = [$line, $one, $same];
+
+    foreach ($clouds as $points) {
+        bt::Shape $simple = guard bt::Shape::hull($points, simplify: true) else ($e) {
+            die("{$e}");
+        }
+        bt::Shape $full = guard bt::Shape::hull($points) else ($e) {
+            die("{$e}");
+        }
+        assert(near($simple->aabb()->max->x, $full->aabb()->max->x, 0.001f));
+        assert(near($simple->aabb()->min->x, $full->aabb()->min->x, 0.001f));
+    }
+}
+
+test scaling_a_gimpact_grows_its_box
+{
+    array<bt::Vec3> $v = [
+        bt::Vec3(0.0f, 1.0f, 0.0f),
+        bt::Vec3(-1.0f, -0.5f, -1.0f),
+        bt::Vec3(1.0f, -0.5f, -1.0f),
+        bt::Vec3(0.0f, -0.5f, 1.0f)
+    ];
+    array<int32> $i = [0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2];
+    bt::Shape $tet = guard bt::Shape::gimpact($v, $i) else ($e) {
+        die("{$e}");
+    }
+    assert($tet->aabb()->max->y < 1.2f);
+
+    $tet->setScaling(bt::Vec3(3.0f, 3.0f, 3.0f));
+    assert($tet->aabb()->max->y > 2.9f);
+
+    $tet->setMargin(0.5f);
+    assert($tet->aabb()->max->y > 3.4f);
+}

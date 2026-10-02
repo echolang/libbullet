@@ -1,0 +1,72 @@
+test character_needs_a_convex_shape
+{
+    assert(bt::Character::create(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)))->failed());
+}
+
+test character_stands_walks_and_jumps
+{
+    bt::World $world = bt::World();
+    bt::Body $floor = bt::Body(bt::Shape(box: bt::Vec3(20.0f, 0.5f, 20.0f)), at: bt::Transform(bt::Vec3(0.0f, -0.5f, 0.0f)));
+    assert(!$world->add($floor)->failed());
+
+    // a capsule 1.8 tall overall
+    bt::Character $player = guard bt::Character::create(
+        bt::Shape(capsule: 0.3f, height: 1.2f),
+        at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f))
+    ) else ($e) {
+        die("{$e}");
+    }
+    assert(!$world->add($player)->failed());
+    assert($world->add($player)->failed());
+
+    run($world, 120);
+    assert($player->grounded());
+    assert($player->canJump());
+    assert(near($player->position()->y, 0.9f, 0.1f));
+
+    $player->walk(bt::Vec3(0.05f, 0.0f, 0.0f));
+    run($world, 60);
+    $player->walk(bt::Vec3());
+    assert(near($player->position()->x, 3.0f, 0.2f));
+
+    $player->setJumpSpeed(6.0f);
+    $player->jump();
+    run($world, 5);
+    assert(!$player->grounded());
+    assert($player->position()->y > 1.0f);
+    run($world, 120);
+    assert($player->grounded());
+
+    $player->warp(bt::Vec3(-3.0f, 0.9f, 0.0f));
+    assert(near($player->position()->x, -3.0f));
+    $player->setMaxSlope(0.5f);
+    assert(near($player->maxSlope(), 0.5f));
+    $player->setStepHeight(0.5f);
+    assert(near($player->stepHeight(), 0.5f));
+    $player->setGravity(bt::Vec3(0.0f, -9.81f, 0.0f));
+    assert(near($player->gravity()->y, -9.81f));
+
+    assert(!$world->remove($player)->failed());
+}
+
+test character_climbs_a_step
+{
+    bt::World $world = groundWorld();
+    bt::Body $step = bt::Body(bt::Shape(box: bt::Vec3(2.0f, 0.1f, 2.0f)), at: bt::Transform(bt::Vec3(3.0f, 0.1f, 0.0f)));
+    assert(!$world->add($step)->failed());
+
+    bt::Character $player = guard bt::Character::create(
+        bt::Shape(capsule: 0.3f, height: 1.2f),
+        at: bt::Transform(bt::Vec3(0.0f, 0.9f, 0.0f)),
+        stepHeight: 0.35f
+    ) else ($e) {
+        die("{$e}");
+    }
+    assert(!$world->add($player)->failed());
+
+    $player->walk(bt::Vec3(0.05f, 0.0f, 0.0f));
+    run($world, 60);
+    // on top of the 0.2 high step
+    assert($player->position()->x > 2.0f);
+    assert(near($player->position()->y, 1.1f, 0.1f));
+}

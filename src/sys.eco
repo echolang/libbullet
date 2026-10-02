@@ -1,0 +1,709 @@
+/**
+ * C symbols this module is built out of, in one place.
+ *
+ * A C symbol may only be declared once per module. Everything here is the
+ * eco_bt_* shim in c/, because Bullet itself is C++ and has no symbol Echo
+ * can call. internal: other files in this module call these, a consumer
+ * does not.
+ */
+
+namespace bt;
+
+extern {
+    struct eco_bt_world;
+    struct eco_bt_shape;
+    struct eco_bt_body;
+    struct eco_bt_constraint;
+    struct eco_bt_ghost;
+    struct eco_bt_character;
+    struct eco_bt_vehicle;
+    struct eco_bt_soft;
+
+    function eco_bt_version as cVersion() : int32;
+    function eco_bt_set_sleep_seconds as cSetSleepSeconds(float32 $seconds) : void;
+    function eco_bt_sleep_seconds as cSleepSeconds() : float32;
+    function eco_bt_max_threads as cMaxThreads() : int32;
+    function eco_bt_shutdown as cShutdown() : void;
+
+    // world
+
+    function eco_bt_world_create as cWorldCreate(ptr<const Vec3> $gravity, int32 $solver) : ptr<eco_bt_world>;
+    function eco_bt_world_create_parallel as cWorldCreateParallel(ptr<const Vec3> $gravity, int32 $threads) : ptr<eco_bt_world>;
+    function eco_bt_world_destroy as cWorldDestroy(ptr<eco_bt_world> $world) : void;
+    function eco_bt_world_set_gravity as cWorldSetGravity(ptr<eco_bt_world> $world, ptr<const Vec3> $gravity) : void;
+    function eco_bt_world_get_gravity as cWorldGravity(ptr<eco_bt_world> $world, ptr<Vec3> $out) : void;
+    function eco_bt_world_step as cWorldStep(
+        ptr<eco_bt_world> $world,
+        float32 $dt,
+        int32 $maxSubSteps,
+        float32 $fixedStep
+    ) : int32;
+    function eco_bt_world_advance as cWorldAdvance(ptr<eco_bt_world> $world, float32 $dt) : void;
+    function eco_bt_world_moving as cWorldMoving(ptr<eco_bt_world> $world, ptr<BodyPose> $out, usize $capacity) : usize;
+    function eco_bt_world_reserve as cWorldReserve(ptr<eco_bt_world> $world, int32 $count) : void;
+    function eco_bt_world_refresh as cWorldRefresh(ptr<eco_bt_world> $world, ptr<eco_bt_body> $body) : void;
+    function eco_bt_world_get_solver as cWorldSolver(ptr<eco_bt_world> $world, ptr<RawSolver> $out) : void;
+    function eco_bt_world_set_solver as cWorldSetSolver(ptr<eco_bt_world> $world, ptr<const RawSolver> $settings) : void;
+    function eco_bt_world_clear_forces as cWorldClearForces(ptr<eco_bt_world> $world) : void;
+    function eco_bt_world_set_update_all_aabbs as cWorldSetUpdateAllAabbs(ptr<eco_bt_world> $world, uint32 $on) : void;
+    function eco_bt_world_set_air_density as cWorldSetAirDensity(ptr<eco_bt_world> $world, float32 $density) : void;
+
+    function eco_bt_world_add_body as cWorldAddBody(ptr<eco_bt_world> $world, ptr<eco_bt_body> $body) : void;
+    function eco_bt_world_add_body_filtered as cWorldAddBodyFiltered(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_body> $body,
+        int32 $group,
+        int32 $mask
+    ) : void;
+    function eco_bt_world_remove_body as cWorldRemoveBody(ptr<eco_bt_world> $world, ptr<eco_bt_body> $body) : void;
+    function eco_bt_world_add_constraint as cWorldAddConstraint(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_constraint> $constraint,
+        uint32 $noCollide
+    ) : void;
+    function eco_bt_world_remove_constraint as cWorldRemoveConstraint(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_constraint> $constraint
+    ) : void;
+    function eco_bt_world_add_ghost as cWorldAddGhost(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_ghost> $ghost,
+        int32 $group,
+        int32 $mask
+    ) : void;
+    function eco_bt_world_remove_ghost as cWorldRemoveGhost(ptr<eco_bt_world> $world, ptr<eco_bt_ghost> $ghost) : void;
+    function eco_bt_world_add_character as cWorldAddCharacter(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_character> $character,
+        int32 $group,
+        int32 $mask
+    ) : void;
+    function eco_bt_world_remove_character as cWorldRemoveCharacter(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_character> $character
+    ) : void;
+    function eco_bt_world_add_vehicle as cWorldAddVehicle(ptr<eco_bt_world> $world, ptr<eco_bt_vehicle> $vehicle) : void;
+    function eco_bt_world_remove_vehicle as cWorldRemoveVehicle(ptr<eco_bt_world> $world, ptr<eco_bt_vehicle> $vehicle) : void;
+    function eco_bt_world_add_soft as cWorldAddSoft(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_soft> $soft,
+        int32 $group,
+        int32 $mask
+    ) : uint32;
+    function eco_bt_world_remove_soft as cWorldRemoveSoft(ptr<eco_bt_world> $world, ptr<eco_bt_soft> $soft) : void;
+
+    function eco_bt_world_debug_mode as cWorldDebugMode(
+        ptr<eco_bt_world> $world,
+        uint32 $wireframe,
+        uint32 $aabb,
+        uint32 $contacts,
+        uint32 $constraints
+    ) : void;
+    function eco_bt_world_debug_draw as cWorldDebugDraw(ptr<eco_bt_world> $world) : usize;
+    function eco_bt_world_debug_copy as cWorldDebugCopy(ptr<eco_bt_world> $world, ptr<float32> $out, usize $count) : void;
+
+    // queries
+
+    function eco_bt_world_ray as cWorldRay(
+        ptr<eco_bt_world> $world,
+        ptr<const Vec3> $from,
+        ptr<const Vec3> $to,
+        int32 $mask,
+        ptr<eco_bt_body> $ignore,
+        ptr<RawHit> $hit
+    ) : uint32;
+    function eco_bt_world_rays as cWorldRays(
+        ptr<eco_bt_world> $world,
+        ptr<const Vec3> $from,
+        ptr<const Vec3> $to,
+        int32 $mask
+    ) : usize;
+    function eco_bt_world_hits_copy as cWorldHitsCopy(ptr<eco_bt_world> $world, ptr<RawHit> $out, usize $count) : void;
+    function eco_bt_world_sweep as cWorldSweep(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_shape> $shape,
+        ptr<const Transform> $from,
+        ptr<const Transform> $to,
+        int32 $mask,
+        uint32 $facing,
+        ptr<eco_bt_body> $ignore,
+        ptr<RawHit> $hit
+    ) : uint32;
+    function eco_bt_world_overlap as cWorldOverlap(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_shape> $shape,
+        ptr<const Transform> $at,
+        int32 $mask
+    ) : usize;
+    function eco_bt_world_aabb_test as cWorldAabbTest(ptr<eco_bt_world> $world, ptr<const Aabb> $box, int32 $mask) : usize;
+    function eco_bt_world_ids_copy as cWorldIdsCopy(ptr<eco_bt_world> $world, ptr<uint64> $out, usize $count) : void;
+    function eco_bt_world_body_contacts as cWorldBodyContacts(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_body> $body,
+        int32 $mask
+    ) : usize;
+    function eco_bt_world_pair_contacts as cWorldPairContacts(
+        ptr<eco_bt_world> $world,
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b
+    ) : usize;
+    function eco_bt_world_touching as cWorldTouching(ptr<eco_bt_world> $world) : usize;
+    function eco_bt_world_contacts_copy as cWorldContactsCopy(
+        ptr<eco_bt_world> $world,
+        ptr<RawContact> $out,
+        usize $count
+    ) : void;
+    function eco_bt_world_track_contacts as cWorldTrackContacts(ptr<eco_bt_world> $world, uint32 $on) : void;
+    function eco_bt_world_events as cWorldEvents(ptr<eco_bt_world> $world) : usize;
+    function eco_bt_world_events_take as cWorldEventsTake(ptr<eco_bt_world> $world, ptr<RawEvent> $out, usize $count) : void;
+
+    // shapes
+
+    function eco_bt_shape_empty as cShapeEmpty() : ptr<eco_bt_shape>;
+    function eco_bt_shape_sphere as cShapeSphere(float32 $radius) : ptr<eco_bt_shape>;
+    function eco_bt_shape_box as cShapeBox(ptr<const Vec3> $halfExtents) : ptr<eco_bt_shape>;
+    function eco_bt_shape_capsule as cShapeCapsule(float32 $radius, float32 $height, int32 $axis) : ptr<eco_bt_shape>;
+    function eco_bt_shape_cylinder as cShapeCylinder(ptr<const Vec3> $halfExtents, int32 $axis) : ptr<eco_bt_shape>;
+    function eco_bt_shape_cone as cShapeCone(float32 $radius, float32 $height, int32 $axis) : ptr<eco_bt_shape>;
+    function eco_bt_shape_plane as cShapePlane(ptr<const Vec3> $normal, float32 $constant) : ptr<eco_bt_shape>;
+    function eco_bt_shape_hull as cShapeHull(ptr<const Vec3> $points, int32 $count, uint32 $simplify) : ptr<eco_bt_shape>;
+    function eco_bt_shape_spheres as cShapeSpheres(
+        ptr<const Vec3> $centres,
+        ptr<const float32> $radii,
+        int32 $count
+    ) : ptr<eco_bt_shape>;
+    function eco_bt_shape_heightfield as cShapeHeightfield(
+        int32 $width,
+        int32 $length,
+        ptr<const float32> $heights,
+        float32 $minHeight,
+        float32 $maxHeight,
+        int32 $axis,
+        uint32 $flipQuadEdges
+    ) : ptr<eco_bt_shape>;
+    function eco_bt_shape_heightfield_borrowed as cShapeHeightfieldBorrowed(
+        int32 $width,
+        int32 $length,
+        ptr<const float32> $heights,
+        float32 $minHeight,
+        float32 $maxHeight,
+        int32 $axis,
+        uint32 $flipQuadEdges,
+        uint32 $accelerate
+    ) : ptr<eco_bt_shape>;
+    function eco_bt_shape_mesh as cShapeMesh(
+        ptr<const Vec3> $vertices,
+        int32 $vertexCount,
+        ptr<const int32> $indices,
+        int32 $indexCount
+    ) : ptr<eco_bt_shape>;
+    function eco_bt_shape_gimpact as cShapeGimpact(
+        ptr<const Vec3> $vertices,
+        int32 $vertexCount,
+        ptr<const int32> $indices,
+        int32 $indexCount
+    ) : ptr<eco_bt_shape>;
+    function eco_bt_shape_compound as cShapeCompound() : ptr<eco_bt_shape>;
+    function eco_bt_shape_compound_add as cShapeCompoundAdd(
+        ptr<eco_bt_shape> $compound,
+        ptr<eco_bt_shape> $child,
+        ptr<const Transform> $at
+    ) : void;
+    function eco_bt_shape_compound_set as cShapeCompoundSet(
+        ptr<eco_bt_shape> $compound,
+        int32 $index,
+        ptr<const Transform> $at
+    ) : void;
+    function eco_bt_shape_destroy as cShapeDestroy(ptr<eco_bt_shape> $shape) : void;
+    function eco_bt_shape_set_scaling as cShapeSetScaling(ptr<eco_bt_shape> $shape, ptr<const Vec3> $scaling) : void;
+    function eco_bt_shape_get_scaling as cShapeScaling(ptr<eco_bt_shape> $shape, ptr<Vec3> $out) : void;
+    function eco_bt_shape_inertia as cShapeInertia(ptr<eco_bt_shape> $shape, float32 $mass, ptr<Vec3> $out) : void;
+    function eco_bt_shape_get_margin as cShapeMargin(ptr<eco_bt_shape> $shape) : float32;
+    function eco_bt_shape_set_margin as cShapeSetMargin(ptr<eco_bt_shape> $shape, float32 $margin) : void;
+    function eco_bt_shape_aabb as cShapeAabb(ptr<eco_bt_shape> $shape, ptr<const Transform> $at, ptr<Aabb> $out) : void;
+    function eco_bt_shape_bounds as cShapeBounds(ptr<eco_bt_shape> $shape, ptr<Vec3> $centre) : float32;
+    function eco_bt_shape_convex as cShapeConvex(ptr<eco_bt_shape> $shape) : uint32;
+    function eco_bt_shape_static_only as cShapeStaticOnly(ptr<eco_bt_shape> $shape) : uint32;
+    function eco_bt_shape_kind as cShapeKind(ptr<eco_bt_shape> $shape) : int32;
+
+    // bodies
+
+    function eco_bt_body_create as cBodyCreate(
+        ptr<eco_bt_shape> $shape,
+        float32 $mass,
+        ptr<const Transform> $at
+    ) : ptr<eco_bt_body>;
+    function eco_bt_body_destroy as cBodyDestroy(ptr<eco_bt_body> $body) : void;
+    function eco_bt_body_id as cBodyId(ptr<eco_bt_body> $body) : uint64;
+    function eco_bt_body_set_slot as cBodySetSlot(ptr<eco_bt_body> $body, int32 $slot) : void;
+    function eco_bt_body_slot as cBodySlot(ptr<eco_bt_body> $body) : int32;
+    function eco_bt_body_set_debug_draw as cBodySetDebugDraw(ptr<eco_bt_body> $body, uint32 $on) : void;
+    function eco_bt_body_get_transform as cBodyTransform(ptr<eco_bt_body> $body, ptr<Transform> $out) : void;
+    function eco_bt_body_set_transform as cBodySetTransform(ptr<eco_bt_body> $body, ptr<const Transform> $at) : void;
+    function eco_bt_body_move as cBodyMove(ptr<eco_bt_body> $body, ptr<const Transform> $at) : void;
+    function eco_bt_body_get_velocity as cBodyVelocity(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_set_velocity as cBodySetVelocity(ptr<eco_bt_body> $body, ptr<const Vec3> $v) : void;
+    function eco_bt_body_get_angular_velocity as cBodyAngularVelocity(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_set_angular_velocity as cBodySetAngularVelocity(ptr<eco_bt_body> $body, ptr<const Vec3> $v) : void;
+    function eco_bt_body_velocity_at as cBodyVelocityAt(ptr<eco_bt_body> $body, ptr<const Vec3> $rel, ptr<Vec3> $out) : void;
+    function eco_bt_body_get_mass as cBodyMass(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_set_mass as cBodySetMass(ptr<eco_bt_body> $body, float32 $mass) : void;
+    function eco_bt_body_inverse_mass as cBodyInverseMass(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_local_inertia as cBodyLocalInertia(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_inverse_inertia as cBodyInverseInertia(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_get_friction as cBodyFriction(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_set_friction as cBodySetFriction(ptr<eco_bt_body> $body, float32 $friction) : void;
+    function eco_bt_body_set_anisotropic_friction as cBodySetAnisotropicFriction(
+        ptr<eco_bt_body> $body,
+        ptr<const Vec3> $friction
+    ) : void;
+    function eco_bt_body_get_rolling_friction as cBodyRollingFriction(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_set_rolling_friction as cBodySetRollingFriction(ptr<eco_bt_body> $body, float32 $friction) : void;
+    function eco_bt_body_get_spinning_friction as cBodySpinningFriction(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_set_spinning_friction as cBodySetSpinningFriction(ptr<eco_bt_body> $body, float32 $friction) : void;
+    function eco_bt_body_get_restitution as cBodyRestitution(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_set_restitution as cBodySetRestitution(ptr<eco_bt_body> $body, float32 $restitution) : void;
+    function eco_bt_body_set_damping as cBodySetDamping(ptr<eco_bt_body> $body, float32 $linear, float32 $angular) : void;
+    function eco_bt_body_linear_damping as cBodyLinearDamping(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_angular_damping as cBodyAngularDamping(ptr<eco_bt_body> $body) : float32;
+    function eco_bt_body_set_contact_stiffness as cBodySetContactStiffness(
+        ptr<eco_bt_body> $body,
+        float32 $stiffness,
+        float32 $damping
+    ) : void;
+    function eco_bt_body_apply_force as cBodyApplyForce(ptr<eco_bt_body> $body, ptr<const Vec3> $force, ptr<const Vec3> $rel) : void;
+    function eco_bt_body_apply_central_force as cBodyApplyCentralForce(ptr<eco_bt_body> $body, ptr<const Vec3> $force) : void;
+    function eco_bt_body_apply_impulse as cBodyApplyImpulse(ptr<eco_bt_body> $body, ptr<const Vec3> $impulse, ptr<const Vec3> $rel) : void;
+    function eco_bt_body_apply_central_impulse as cBodyApplyCentralImpulse(ptr<eco_bt_body> $body, ptr<const Vec3> $impulse) : void;
+    function eco_bt_body_apply_torque as cBodyApplyTorque(ptr<eco_bt_body> $body, ptr<const Vec3> $torque) : void;
+    function eco_bt_body_apply_torque_impulse as cBodyApplyTorqueImpulse(ptr<eco_bt_body> $body, ptr<const Vec3> $torque) : void;
+    function eco_bt_body_push as cBodyPush(ptr<eco_bt_body> $body, ptr<const Vec3> $impulse, ptr<const Vec3> $rel) : void;
+    function eco_bt_body_push_central as cBodyPushCentral(ptr<eco_bt_body> $body, ptr<const Vec3> $impulse) : void;
+    function eco_bt_body_push_torque as cBodyPushTorque(ptr<eco_bt_body> $body, ptr<const Vec3> $torque) : void;
+    function eco_bt_body_total_force as cBodyTotalForce(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_total_torque as cBodyTotalTorque(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_clear_forces as cBodyClearForces(ptr<eco_bt_body> $body) : void;
+    function eco_bt_body_get_gravity as cBodyGravity(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_set_gravity as cBodySetGravity(ptr<eco_bt_body> $body, ptr<const Vec3> $gravity) : void;
+    function eco_bt_body_get_linear_factor as cBodyLinearFactor(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_set_linear_factor as cBodySetLinearFactor(ptr<eco_bt_body> $body, ptr<const Vec3> $factor) : void;
+    function eco_bt_body_get_angular_factor as cBodyAngularFactor(ptr<eco_bt_body> $body, ptr<Vec3> $out) : void;
+    function eco_bt_body_set_angular_factor as cBodySetAngularFactor(ptr<eco_bt_body> $body, ptr<const Vec3> $factor) : void;
+    function eco_bt_body_set_ccd as cBodySetCcd(ptr<eco_bt_body> $body, float32 $threshold, float32 $radius) : void;
+    function eco_bt_body_set_sleep_thresholds as cBodySetSleepThresholds(
+        ptr<eco_bt_body> $body,
+        float32 $linear,
+        float32 $angular
+    ) : void;
+    function eco_bt_body_aabb as cBodyAabb(ptr<eco_bt_body> $body, ptr<Aabb> $out) : void;
+    function eco_bt_body_activate as cBodyActivate(ptr<eco_bt_body> $body) : void;
+    function eco_bt_body_sleep as cBodySleep(ptr<eco_bt_body> $body) : void;
+    function eco_bt_body_set_always_awake as cBodySetAlwaysAwake(ptr<eco_bt_body> $body, uint32 $on) : void;
+    function eco_bt_body_awake as cBodyAwake(ptr<eco_bt_body> $body) : uint32;
+    function eco_bt_body_in_world as cBodyInWorld(ptr<eco_bt_body> $body) : uint32;
+    function eco_bt_body_kind as cBodyKind(ptr<eco_bt_body> $body) : int32;
+    function eco_bt_body_set_kinematic as cBodySetKinematic(ptr<eco_bt_body> $body, uint32 $on) : void;
+    function eco_bt_body_sensor as cBodySensor(ptr<eco_bt_body> $body) : uint32;
+    function eco_bt_body_set_sensor as cBodySetSensor(ptr<eco_bt_body> $body, uint32 $on) : void;
+
+    // constraints, common
+
+    function eco_bt_constraint_destroy as cConstraintDestroy(ptr<eco_bt_constraint> $constraint) : void;
+    function eco_bt_constraint_enabled as cConstraintEnabled(ptr<eco_bt_constraint> $constraint) : uint32;
+    function eco_bt_constraint_set_enabled as cConstraintSetEnabled(ptr<eco_bt_constraint> $constraint, uint32 $on) : void;
+    function eco_bt_constraint_breaking_impulse as cConstraintBreakingImpulse(ptr<eco_bt_constraint> $constraint) : float32;
+    function eco_bt_constraint_set_breaking_impulse as cConstraintSetBreakingImpulse(
+        ptr<eco_bt_constraint> $constraint,
+        float32 $impulse
+    ) : void;
+    function eco_bt_constraint_applied_impulse as cConstraintAppliedImpulse(ptr<eco_bt_constraint> $constraint) : float32;
+    function eco_bt_constraint_feedback as cConstraintFeedback(
+        ptr<eco_bt_constraint> $constraint,
+        ptr<JointFeedback> $out
+    ) : void;
+    function eco_bt_constraint_set_iterations as cConstraintSetIterations(
+        ptr<eco_bt_constraint> $constraint,
+        int32 $iterations
+    ) : void;
+    function eco_bt_constraint_set_param as cConstraintSetParam(
+        ptr<eco_bt_constraint> $constraint,
+        int32 $param,
+        float32 $value,
+        int32 $axis
+    ) : void;
+    function eco_bt_constraint_set_debug_size as cConstraintSetDebugSize(ptr<eco_bt_constraint> $constraint, float32 $size) : void;
+
+    // point to point
+
+    function eco_bt_point_create as cPointCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Vec3> $pivotA,
+        ptr<const Vec3> $pivotB
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_point_set_pivots as cPointSetPivots(
+        ptr<eco_bt_constraint> $point,
+        ptr<const Vec3> $pivotA,
+        ptr<const Vec3> $pivotB
+    ) : void;
+    function eco_bt_point_get_pivots as cPointPivots(
+        ptr<eco_bt_constraint> $point,
+        ptr<Vec3> $pivotA,
+        ptr<Vec3> $pivotB
+    ) : void;
+    function eco_bt_point_set_tuning as cPointSetTuning(
+        ptr<eco_bt_constraint> $point,
+        float32 $tau,
+        float32 $damping,
+        float32 $impulseClamp
+    ) : void;
+
+    // hinge
+
+    function eco_bt_hinge_create as cHingeCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Vec3> $pivotA,
+        ptr<const Vec3> $pivotB,
+        ptr<const Vec3> $axisA,
+        ptr<const Vec3> $axisB
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_hinge_create_frames as cHingeCreateFrames(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_hinge_set_limit as cHingeSetLimit(
+        ptr<eco_bt_constraint> $hinge,
+        float32 $low,
+        float32 $high,
+        float32 $softness,
+        float32 $bias,
+        float32 $relaxation
+    ) : void;
+    function eco_bt_hinge_low as cHingeLow(ptr<eco_bt_constraint> $hinge) : float32;
+    function eco_bt_hinge_high as cHingeHigh(ptr<eco_bt_constraint> $hinge) : float32;
+    function eco_bt_hinge_angle as cHingeAngle(ptr<eco_bt_constraint> $hinge) : float32;
+    function eco_bt_hinge_set_motor as cHingeSetMotor(
+        ptr<eco_bt_constraint> $hinge,
+        uint32 $on,
+        float32 $velocity,
+        float32 $maxImpulse
+    ) : void;
+    function eco_bt_hinge_set_motor_target as cHingeSetMotorTarget(ptr<eco_bt_constraint> $hinge, float32 $angle, float32 $dt) : void;
+    function eco_bt_hinge_set_axis as cHingeSetAxis(ptr<eco_bt_constraint> $hinge, ptr<const Vec3> $axisA) : void;
+    function eco_bt_hinge_set_frames as cHingeSetFrames(
+        ptr<eco_bt_constraint> $hinge,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : void;
+
+    // slider
+
+    function eco_bt_slider_create as cSliderCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB,
+        uint32 $linearFrameA
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_slider_set_linear_limit as cSliderSetLinearLimit(ptr<eco_bt_constraint> $slider, float32 $low, float32 $high) : void;
+    function eco_bt_slider_set_angular_limit as cSliderSetAngularLimit(ptr<eco_bt_constraint> $slider, float32 $low, float32 $high) : void;
+    function eco_bt_slider_position as cSliderPosition(ptr<eco_bt_constraint> $slider) : float32;
+    function eco_bt_slider_angle as cSliderAngle(ptr<eco_bt_constraint> $slider) : float32;
+    function eco_bt_slider_set_linear_motor as cSliderSetLinearMotor(
+        ptr<eco_bt_constraint> $slider,
+        uint32 $on,
+        float32 $velocity,
+        float32 $maxForce
+    ) : void;
+    function eco_bt_slider_set_angular_motor as cSliderSetAngularMotor(
+        ptr<eco_bt_constraint> $slider,
+        uint32 $on,
+        float32 $velocity,
+        float32 $maxForce
+    ) : void;
+    function eco_bt_slider_set_frames as cSliderSetFrames(
+        ptr<eco_bt_constraint> $slider,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : void;
+
+    // legacy six dof
+
+    function eco_bt_legacy_sixdof_create as cLegacySixDofCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB,
+        uint32 $linearFrameA
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_legacy_sixdof_set_linear as cLegacySixDofSetLinear(
+        ptr<eco_bt_constraint> $c,
+        ptr<const Vec3> $lower,
+        ptr<const Vec3> $upper
+    ) : void;
+    function eco_bt_legacy_sixdof_set_angular as cLegacySixDofSetAngular(
+        ptr<eco_bt_constraint> $c,
+        ptr<const Vec3> $lower,
+        ptr<const Vec3> $upper
+    ) : void;
+
+    // six dof (spring 2), also hinge2
+
+    function eco_bt_sixdof_create as cSixDofCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_sixdof_set_frames as cSixDofSetFrames(
+        ptr<eco_bt_constraint> $c,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : void;
+    function eco_bt_sixdof_set_linear_lower as cSixDofSetLinearLower(ptr<eco_bt_constraint> $c, ptr<const Vec3> $v) : void;
+    function eco_bt_sixdof_set_linear_upper as cSixDofSetLinearUpper(ptr<eco_bt_constraint> $c, ptr<const Vec3> $v) : void;
+    function eco_bt_sixdof_set_angular_lower as cSixDofSetAngularLower(ptr<eco_bt_constraint> $c, ptr<const Vec3> $v) : void;
+    function eco_bt_sixdof_set_angular_lower_reversed as cSixDofSetAngularLowerReversed(ptr<eco_bt_constraint> $c, ptr<const Vec3> $v) : void;
+    function eco_bt_sixdof_set_angular_upper as cSixDofSetAngularUpper(ptr<eco_bt_constraint> $c, ptr<const Vec3> $v) : void;
+    function eco_bt_sixdof_set_angular_upper_reversed as cSixDofSetAngularUpperReversed(ptr<eco_bt_constraint> $c, ptr<const Vec3> $v) : void;
+    function eco_bt_sixdof_set_limit as cSixDofSetLimit(ptr<eco_bt_constraint> $c, int32 $axis, float32 $low, float32 $high) : void;
+    function eco_bt_sixdof_set_limit_reversed as cSixDofSetLimitReversed(ptr<eco_bt_constraint> $c, int32 $axis, float32 $low, float32 $high) : void;
+    function eco_bt_sixdof_set_axis as cSixDofSetAxis(ptr<eco_bt_constraint> $c, ptr<const Vec3> $axis1, ptr<const Vec3> $axis2) : void;
+    function eco_bt_sixdof_set_bounce as cSixDofSetBounce(ptr<eco_bt_constraint> $c, int32 $index, float32 $bounce) : void;
+    function eco_bt_sixdof_enable_motor as cSixDofEnableMotor(ptr<eco_bt_constraint> $c, int32 $index, uint32 $on) : void;
+    function eco_bt_sixdof_set_servo as cSixDofSetServo(ptr<eco_bt_constraint> $c, int32 $index, uint32 $on) : void;
+    function eco_bt_sixdof_set_target_velocity as cSixDofSetTargetVelocity(ptr<eco_bt_constraint> $c, int32 $index, float32 $velocity) : void;
+    function eco_bt_sixdof_set_servo_target as cSixDofSetServoTarget(ptr<eco_bt_constraint> $c, int32 $index, float32 $target) : void;
+    function eco_bt_sixdof_set_max_motor_force as cSixDofSetMaxMotorForce(ptr<eco_bt_constraint> $c, int32 $index, float32 $force) : void;
+    function eco_bt_sixdof_enable_spring as cSixDofEnableSpring(ptr<eco_bt_constraint> $c, int32 $index, uint32 $on) : void;
+    function eco_bt_sixdof_set_stiffness as cSixDofSetStiffness(
+        ptr<eco_bt_constraint> $c,
+        int32 $index,
+        float32 $stiffness,
+        uint32 $limitIfNeeded
+    ) : void;
+    function eco_bt_sixdof_set_damping as cSixDofSetDamping(
+        ptr<eco_bt_constraint> $c,
+        int32 $index,
+        float32 $damping,
+        uint32 $limitIfNeeded
+    ) : void;
+    function eco_bt_sixdof_set_equilibrium as cSixDofSetEquilibrium(ptr<eco_bt_constraint> $c) : void;
+    function eco_bt_sixdof_angle as cSixDofAngle(ptr<eco_bt_constraint> $c, int32 $axis) : float32;
+    function eco_bt_sixdof_position as cSixDofPosition(ptr<eco_bt_constraint> $c, int32 $axis) : float32;
+
+    // cone twist
+
+    function eco_bt_cone_create as cConeCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_cone_set_limit as cConeSetLimit(
+        ptr<eco_bt_constraint> $cone,
+        float32 $swing1,
+        float32 $swing2,
+        float32 $twist,
+        float32 $softness,
+        float32 $bias,
+        float32 $relaxation
+    ) : void;
+    function eco_bt_cone_set_damping as cConeSetDamping(ptr<eco_bt_constraint> $cone, float32 $damping) : void;
+    function eco_bt_cone_set_motor as cConeSetMotor(ptr<eco_bt_constraint> $cone, uint32 $on, float32 $maxImpulse) : void;
+    function eco_bt_cone_set_motor_target as cConeSetMotorTarget(ptr<eco_bt_constraint> $cone, ptr<const Quat> $target) : void;
+    function eco_bt_cone_set_frames as cConeSetFrames(
+        ptr<eco_bt_constraint> $cone,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : void;
+    function eco_bt_cone_twist as cConeTwist(ptr<eco_bt_constraint> $cone) : float32;
+    function eco_bt_cone_swing1 as cConeSwing1(ptr<eco_bt_constraint> $cone) : float32;
+    function eco_bt_cone_swing2 as cConeSwing2(ptr<eco_bt_constraint> $cone) : float32;
+
+    // fixed, gear, hinge2, universal
+
+    function eco_bt_fixed_create as cFixedCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Transform> $frameA,
+        ptr<const Transform> $frameB
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_gear_create as cGearCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Vec3> $axisA,
+        ptr<const Vec3> $axisB,
+        float32 $ratio
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_gear_get_ratio as cGearRatio(ptr<eco_bt_constraint> $gear) : float32;
+    function eco_bt_gear_set_ratio as cGearSetRatio(ptr<eco_bt_constraint> $gear, float32 $ratio) : void;
+    function eco_bt_hinge2_create as cHinge2Create(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Vec3> $anchor,
+        ptr<const Vec3> $axis1,
+        ptr<const Vec3> $axis2
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_hinge2_set_steering as cHinge2SetSteering(ptr<eco_bt_constraint> $hinge2, float32 $low, float32 $high) : void;
+    function eco_bt_universal_create as cUniversalCreate(
+        ptr<eco_bt_body> $a,
+        ptr<eco_bt_body> $b,
+        ptr<const Vec3> $anchor,
+        ptr<const Vec3> $axis1,
+        ptr<const Vec3> $axis2
+    ) : ptr<eco_bt_constraint>;
+    function eco_bt_universal_set_limit as cUniversalSetLimit(
+        ptr<eco_bt_constraint> $universal,
+        float32 $low1,
+        float32 $high1,
+        float32 $low2,
+        float32 $high2
+    ) : void;
+    function eco_bt_universal_angle1 as cUniversalAngle1(ptr<eco_bt_constraint> $universal) : float32;
+    function eco_bt_universal_angle2 as cUniversalAngle2(ptr<eco_bt_constraint> $universal) : float32;
+
+    // ghosts
+
+    function eco_bt_ghost_create as cGhostCreate(ptr<eco_bt_shape> $shape, ptr<const Transform> $at) : ptr<eco_bt_ghost>;
+    function eco_bt_ghost_destroy as cGhostDestroy(ptr<eco_bt_ghost> $ghost) : void;
+    function eco_bt_ghost_id as cGhostId(ptr<eco_bt_ghost> $ghost) : uint64;
+    function eco_bt_ghost_get_transform as cGhostTransform(ptr<eco_bt_ghost> $ghost, ptr<Transform> $out) : void;
+    function eco_bt_ghost_set_transform as cGhostSetTransform(ptr<eco_bt_ghost> $ghost, ptr<const Transform> $at) : void;
+    function eco_bt_ghost_in_world as cGhostInWorld(ptr<eco_bt_ghost> $ghost) : uint32;
+    function eco_bt_ghost_overlaps as cGhostOverlaps(ptr<eco_bt_ghost> $ghost) : usize;
+    function eco_bt_ghost_overlaps_copy as cGhostOverlapsCopy(ptr<eco_bt_ghost> $ghost, ptr<uint64> $out, usize $count) : void;
+    function eco_bt_ghost_touching as cGhostTouching(ptr<eco_bt_ghost> $ghost, ptr<eco_bt_world> $world) : usize;
+
+    // characters
+
+    function eco_bt_character_create as cCharacterCreate(
+        ptr<eco_bt_shape> $shape,
+        ptr<const Transform> $at,
+        float32 $stepHeight,
+        ptr<const Vec3> $up
+    ) : ptr<eco_bt_character>;
+    function eco_bt_character_destroy as cCharacterDestroy(ptr<eco_bt_character> $character) : void;
+    function eco_bt_character_id as cCharacterId(ptr<eco_bt_character> $character) : uint64;
+    function eco_bt_character_get_transform as cCharacterTransform(ptr<eco_bt_character> $character, ptr<Transform> $out) : void;
+    function eco_bt_character_warp as cCharacterWarp(ptr<eco_bt_character> $character, ptr<const Vec3> $origin) : void;
+    function eco_bt_character_walk as cCharacterWalk(ptr<eco_bt_character> $character, ptr<const Vec3> $perStep) : void;
+    function eco_bt_character_set_velocity as cCharacterSetVelocity(
+        ptr<eco_bt_character> $character,
+        ptr<const Vec3> $velocity,
+        float32 $seconds
+    ) : void;
+    function eco_bt_character_get_velocity as cCharacterVelocity(ptr<eco_bt_character> $character, ptr<Vec3> $out) : void;
+    function eco_bt_character_jump as cCharacterJump(ptr<eco_bt_character> $character, ptr<const Vec3> $velocity) : void;
+    function eco_bt_character_can_jump as cCharacterCanJump(ptr<eco_bt_character> $character) : uint32;
+    function eco_bt_character_grounded as cCharacterGrounded(ptr<eco_bt_character> $character) : uint32;
+    function eco_bt_character_set_jump_speed as cCharacterSetJumpSpeed(ptr<eco_bt_character> $character, float32 $speed) : void;
+    function eco_bt_character_set_fall_speed as cCharacterSetFallSpeed(ptr<eco_bt_character> $character, float32 $speed) : void;
+    function eco_bt_character_set_max_jump_height as cCharacterSetMaxJumpHeight(ptr<eco_bt_character> $character, float32 $height) : void;
+    function eco_bt_character_set_max_slope as cCharacterSetMaxSlope(ptr<eco_bt_character> $character, float32 $radians) : void;
+    function eco_bt_character_get_max_slope as cCharacterMaxSlope(ptr<eco_bt_character> $character) : float32;
+    function eco_bt_character_set_gravity as cCharacterSetGravity(ptr<eco_bt_character> $character, ptr<const Vec3> $gravity) : void;
+    function eco_bt_character_get_gravity as cCharacterGravity(ptr<eco_bt_character> $character, ptr<Vec3> $out) : void;
+    function eco_bt_character_set_step_height as cCharacterSetStepHeight(ptr<eco_bt_character> $character, float32 $height) : void;
+    function eco_bt_character_get_step_height as cCharacterStepHeight(ptr<eco_bt_character> $character) : float32;
+    function eco_bt_character_set_up as cCharacterSetUp(ptr<eco_bt_character> $character, ptr<const Vec3> $up) : void;
+    function eco_bt_character_set_max_penetration as cCharacterSetMaxPenetration(ptr<eco_bt_character> $character, float32 $depth) : void;
+    function eco_bt_character_in_world as cCharacterInWorld(ptr<eco_bt_character> $character) : uint32;
+
+    // vehicles
+
+    function eco_bt_vehicle_create as cVehicleCreate(ptr<eco_bt_body> $chassis) : ptr<eco_bt_vehicle>;
+    function eco_bt_vehicle_destroy as cVehicleDestroy(ptr<eco_bt_vehicle> $vehicle) : void;
+    function eco_bt_vehicle_add_wheel as cVehicleAddWheel(ptr<eco_bt_vehicle> $vehicle, ptr<const RawWheel> $wheel) : int32;
+    function eco_bt_vehicle_wheel_count as cVehicleWheelCount(ptr<eco_bt_vehicle> $vehicle) : int32;
+    function eco_bt_vehicle_wheel_state as cVehicleWheelState(
+        ptr<eco_bt_vehicle> $vehicle,
+        int32 $wheel,
+        ptr<RawWheelState> $out
+    ) : void;
+    function eco_bt_vehicle_set_steering as cVehicleSetSteering(ptr<eco_bt_vehicle> $vehicle, int32 $wheel, float32 $radians) : void;
+    function eco_bt_vehicle_set_engine as cVehicleSetEngine(ptr<eco_bt_vehicle> $vehicle, int32 $wheel, float32 $force) : void;
+    function eco_bt_vehicle_set_brake as cVehicleSetBrake(ptr<eco_bt_vehicle> $vehicle, int32 $wheel, float32 $force) : void;
+    function eco_bt_vehicle_speed as cVehicleSpeed(ptr<eco_bt_vehicle> $vehicle) : float32;
+    function eco_bt_vehicle_forward as cVehicleForward(ptr<eco_bt_vehicle> $vehicle, ptr<Vec3> $out) : void;
+    function eco_bt_vehicle_set_axes as cVehicleSetAxes(ptr<eco_bt_vehicle> $vehicle, int32 $right, int32 $up, int32 $forward) : void;
+    function eco_bt_vehicle_reset as cVehicleReset(ptr<eco_bt_vehicle> $vehicle) : void;
+    function eco_bt_vehicle_in_world as cVehicleInWorld(ptr<eco_bt_vehicle> $vehicle) : uint32;
+
+    // soft bodies
+
+    function eco_bt_soft_rope as cSoftRope(ptr<const Vec3> $from, ptr<const Vec3> $to, int32 $segments) : ptr<eco_bt_soft>;
+    function eco_bt_soft_cloth as cSoftCloth(
+        ptr<const Vec3> $c00,
+        ptr<const Vec3> $c10,
+        ptr<const Vec3> $c01,
+        ptr<const Vec3> $c11,
+        int32 $rx,
+        int32 $ry,
+        uint32 $diagonals
+    ) : ptr<eco_bt_soft>;
+    function eco_bt_soft_ellipsoid as cSoftEllipsoid(
+        ptr<const Vec3> $centre,
+        ptr<const Vec3> $radius,
+        int32 $resolution
+    ) : ptr<eco_bt_soft>;
+    function eco_bt_soft_mesh as cSoftMesh(
+        ptr<const Vec3> $vertices,
+        int32 $vertexCount,
+        ptr<const int32> $indices,
+        int32 $indexCount
+    ) : ptr<eco_bt_soft>;
+    function eco_bt_soft_hull as cSoftHull(ptr<const Vec3> $points, int32 $count) : ptr<eco_bt_soft>;
+    function eco_bt_soft_destroy as cSoftDestroy(ptr<eco_bt_soft> $soft) : void;
+    function eco_bt_soft_id as cSoftId(ptr<eco_bt_soft> $soft) : uint64;
+    function eco_bt_soft_in_world as cSoftInWorld(ptr<eco_bt_soft> $soft) : uint32;
+    function eco_bt_soft_node_count as cSoftNodeCount(ptr<eco_bt_soft> $soft) : int32;
+    function eco_bt_soft_nodes as cSoftNodes(ptr<eco_bt_soft> $soft, ptr<Vec3> $out, usize $count) : void;
+    function eco_bt_soft_normals as cSoftNormals(ptr<eco_bt_soft> $soft, ptr<Vec3> $out, usize $count) : void;
+    function eco_bt_soft_face_count as cSoftFaceCount(ptr<eco_bt_soft> $soft) : int32;
+    function eco_bt_soft_faces as cSoftFaces(ptr<eco_bt_soft> $soft, ptr<int32> $out, usize $count) : void;
+    function eco_bt_soft_link_count as cSoftLinkCount(ptr<eco_bt_soft> $soft) : int32;
+    function eco_bt_soft_links as cSoftLinks(ptr<eco_bt_soft> $soft, ptr<int32> $out, usize $count) : void;
+    function eco_bt_soft_get_mass as cSoftMass(ptr<eco_bt_soft> $soft) : float32;
+    function eco_bt_soft_set_mass as cSoftSetMass(ptr<eco_bt_soft> $soft, float32 $mass, uint32 $fromFaces) : void;
+    function eco_bt_soft_get_node_mass as cSoftNodeMass(ptr<eco_bt_soft> $soft, int32 $node) : float32;
+    function eco_bt_soft_set_node_mass as cSoftSetNodeMass(ptr<eco_bt_soft> $soft, int32 $node, float32 $mass) : void;
+    function eco_bt_soft_anchor as cSoftAnchor(
+        ptr<eco_bt_soft> $soft,
+        int32 $node,
+        ptr<eco_bt_body> $body,
+        uint32 $collide,
+        float32 $influence
+    ) : void;
+    function eco_bt_soft_set_stiffness as cSoftSetStiffness(
+        ptr<eco_bt_soft> $soft,
+        float32 $linear,
+        float32 $angular,
+        float32 $volume
+    ) : void;
+    function eco_bt_soft_get_config as cSoftConfig(ptr<eco_bt_soft> $soft, ptr<SoftConfig> $out) : void;
+    function eco_bt_soft_set_config as cSoftSetConfig(ptr<eco_bt_soft> $soft, ptr<const SoftConfig> $config) : void;
+    function eco_bt_soft_set_collision as cSoftSetCollision(
+        ptr<eco_bt_soft> $soft,
+        int32 $mode,
+        uint32 $softSoft,
+        uint32 $self
+    ) : void;
+    function eco_bt_soft_bend as cSoftBend(ptr<eco_bt_soft> $soft, int32 $distance) : void;
+    function eco_bt_soft_randomize as cSoftRandomize(ptr<eco_bt_soft> $soft) : void;
+    function eco_bt_soft_clusters as cSoftClusters(ptr<eco_bt_soft> $soft, int32 $count) : void;
+    function eco_bt_soft_set_pose as cSoftSetPose(ptr<eco_bt_soft> $soft, uint32 $volume, uint32 $frame) : void;
+    function eco_bt_soft_set_wind as cSoftSetWind(ptr<eco_bt_soft> $soft, ptr<const Vec3> $velocity) : void;
+    function eco_bt_soft_apply_force as cSoftApplyForce(ptr<eco_bt_soft> $soft, ptr<const Vec3> $force) : void;
+    function eco_bt_soft_apply_node_force as cSoftApplyNodeForce(ptr<eco_bt_soft> $soft, int32 $node, ptr<const Vec3> $force) : void;
+    function eco_bt_soft_set_velocity as cSoftSetVelocity(ptr<eco_bt_soft> $soft, ptr<const Vec3> $velocity) : void;
+    function eco_bt_soft_translate as cSoftTranslate(ptr<eco_bt_soft> $soft, ptr<const Vec3> $offset) : void;
+    function eco_bt_soft_rotate as cSoftRotate(ptr<eco_bt_soft> $soft, ptr<const Quat> $rotation) : void;
+    function eco_bt_soft_scale as cSoftScale(ptr<eco_bt_soft> $soft, ptr<const Vec3> $scale) : void;
+    function eco_bt_soft_aabb as cSoftAabb(ptr<eco_bt_soft> $soft, ptr<Aabb> $out) : void;
+    function eco_bt_soft_volume as cSoftVolume(ptr<eco_bt_soft> $soft) : float32;
+    function eco_bt_soft_activate as cSoftActivate(ptr<eco_bt_soft> $soft) : void;
+}

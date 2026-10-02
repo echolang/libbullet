@@ -1,0 +1,95 @@
+/**
+ * Collision filtering. Every object sits in a group and carries a mask;
+ * two objects collide when each one's group is in the other's mask.
+ * Queries take a mask of the groups they should see.
+ */
+
+namespace bt;
+
+/**
+ * A set of up to 32 collision groups as one bitmask. Bullet reserves the
+ * low six bits for its own groups, the statics below; your own start at
+ * `Layer(bit: 6)`.
+ */
+public struct Layer
+{
+    public int32 $bits = 1;
+
+    public constructor(int32 $bits = 1)
+    {
+        $this->bits = $bits;
+    }
+
+    /**
+     * The group with only `$bit` set, 0 to 31.
+     */
+    public constructor(bit: int32 $bit)
+    {
+        assert($bit >= 0 && $bit < 32, 'bt: a layer bit is 0 to 31');
+        $this->bits = 1 << $bit;
+    }
+
+    /**
+     * Where a dynamic body lands when you add it without a group.
+     */
+    public static function standard() : Layer
+    {
+        return Layer(1);
+    }
+
+    /**
+     * Where a static body lands when you add it without a group.
+     */
+    public static function fixed() : Layer
+    {
+        return Layer(2);
+    }
+
+    public static function kinematic() : Layer
+    {
+        return Layer(4);
+    }
+
+    public static function debris() : Layer
+    {
+        return Layer(8);
+    }
+
+    public static function sensor() : Layer
+    {
+        return Layer(16);
+    }
+
+    public static function character() : Layer
+    {
+        return Layer(32);
+    }
+
+    public static function all() : Layer
+    {
+        return Layer(-1);
+    }
+
+    public static function none() : Layer
+    {
+        return Layer(0);
+    }
+
+    public const function has(Layer $other) : bool
+    {
+        return ($this->bits & $other->bits) != 0;
+    }
+
+    /**
+     * This set with every group of `$other` taken out.
+     */
+    public const function without(Layer $other) : Layer
+    {
+        return Layer($this->bits & ~$other->bits);
+    }
+}
+
+operator (bt::Layer $a) | (bt::Layer $b) : bt::Layer
+{
+    return bt::Layer($a->bits | $b->bits);
+}

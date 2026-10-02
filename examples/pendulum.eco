@@ -1,0 +1,43 @@
+/**
+ * A hinged pendulum with a limit, printed as it swings.
+ */
+
+use std::math;
+
+$world = bt::World();
+
+$pivot = bt::Body(bt::Shape(sphere: 0.05f), at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+$bob = bt::Body(bt::Shape(sphere: 0.25f), 1.0f, at: bt::Transform(bt::Vec3(1.0f, 2.0f, 0.0f)));
+guard $world->add($pivot) else ($e) {
+    die("{$e}");
+}
+guard $world->add($bob) else ($e) {
+    die("{$e}");
+}
+
+$hinge = bt::Hinge(
+    $pivot,
+    $bob,
+    pivotA: bt::Vec3(),
+    pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f),
+    axisA: bt::Vec3(0.0f, 0.0f, 1.0f),
+    axisB: bt::Vec3(0.0f, 0.0f, 1.0f)
+);
+
+// it starts level at 0 and hangs at 90; stop it 45 short of level on
+// the far side so the limit visibly bounces it back
+$hinge->setLimit(-math::HALF_PI_F32, math::PI_F32 * 0.75f);
+
+guard $world->add($hinge, noCollide: true) else ($e) {
+    die("{$e}");
+}
+
+for (int32 $frame = 0; $frame <= 240; $frame++) {
+    if ($frame % 10 == 0) {
+        bt::Vec3 $p = $bob->position();
+        float32 $degrees = $hinge->angle() * 180.0f / math::PI_F32;
+        echo "t={$frame}  bob=({$p->x:.2f}, {$p->y:.2f})  angle={$degrees:.0f} deg";
+    }
+
+    $world->step(1.0f / 60.0f);
+}

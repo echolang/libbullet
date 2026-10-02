@@ -1,0 +1,35 @@
+/**
+ * Two bodies turning together about their own axes at a fixed ratio.
+ * Pair it with a hinge on each body, or it has nothing to turn about.
+ */
+
+namespace bt;
+
+public class Gear : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Axes are in each body's local space. With `ratio:` 2, B turns half
+     * as fast as A.
+     */
+    public constructor(Body $a, Body $b, axisA: Vec3 $axisA, axisB: Vec3 $axisB, ratio: float32 $ratio = 1.0f)
+    {
+        $this->joint = Joint(cGearCreate($a->raw, $b->raw, &$axisA, &$axisB, $ratio), $a, $b, 'gear');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    public const function ratio() : float32
+    {
+        return cGearRatio($this->joint->raw);
+    }
+
+    public function setRatio(float32 $ratio) : void
+    {
+        cGearSetRatio($this->joint->raw, $ratio);
+    }
+}

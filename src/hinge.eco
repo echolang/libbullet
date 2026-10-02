@@ -1,0 +1,131 @@
+/**
+ * A door hinge: the bodies share a pivot and turn about one axis.
+ */
+
+namespace bt;
+
+public class Hinge : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Pivots and axes are in each body's local space.
+     */
+    public constructor(
+        Body $a,
+        Body $b,
+        pivotA: Vec3 $pivotA,
+        pivotB: Vec3 $pivotB,
+        axisA: Vec3 $axisA,
+        axisB: Vec3 $axisB
+    )
+    {
+        $this->joint = Joint(
+            cHingeCreate($a->raw, $b->raw, &$pivotA, &$pivotB, &$axisA, &$axisB),
+            $a,
+            $b,
+            'hinge'
+        );
+    }
+
+    /**
+     * `$a` hinged to the world at `pivot:` about `axis:`, both in its
+     * local space, where it is right now.
+     */
+    public constructor(Body $a, pivot: Vec3 $pivot, axis: Vec3 $axis)
+    {
+        $this->joint = Joint(cHingeCreate($a->raw, null, &$pivot, &$pivot, &$axis, &$axis), $a, null, 'hinge');
+    }
+
+    /**
+     * Frames in each body's local space. The hinge turns about their Z
+     * axes.
+     */
+    public constructor(Body $a, Body $b, frameA: Transform $frameA, frameB: Transform $frameB)
+    {
+        $this->joint = Joint(cHingeCreateFrames($a->raw, $b->raw, &$frameA, &$frameB), $a, $b, 'hinge');
+    }
+
+    /**
+     * `$a` hinged to the world about the Z axis of `frame:`, in its local
+     * space.
+     */
+    public constructor(Body $a, frame: Transform $frame)
+    {
+        $this->joint = Joint(cHingeCreateFrames($a->raw, null, &$frame, &$frame), $a, null, 'hinge');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    /**
+     * Keep the angle between `$low` and `$high` radians. The other three
+     * are Bullet's tuning knobs, with Bullet's defaults.
+     */
+    public function setLimit(
+        float32 $low,
+        float32 $high,
+        softness: float32 $softness = 0.9f,
+        bias: float32 $bias = 0.3f,
+        relaxation: float32 $relaxation = 1.0f
+    ) : void
+    {
+        cHingeSetLimit($this->joint->raw, $low, $high, $softness, $bias, $relaxation);
+    }
+
+    public const function lowLimit() : float32
+    {
+        return cHingeLow($this->joint->raw);
+    }
+
+    public const function highLimit() : float32
+    {
+        return cHingeHigh($this->joint->raw);
+    }
+
+    /**
+     * The current hinge angle in radians.
+     */
+    public const function angle() : float32
+    {
+        return cHingeAngle($this->joint->raw);
+    }
+
+    /**
+     * Drive the hinge at `$velocity` radians per second, with at most
+     * `maxImpulse:` per step to do it.
+     */
+    public function setMotor(float32 $velocity, maxImpulse: float32 $maxImpulse) : void
+    {
+        cHingeSetMotor($this->joint->raw, 1, $velocity, $maxImpulse);
+    }
+
+    public function disableMotor() : void
+    {
+        cHingeSetMotor($this->joint->raw, 0, 0.0f, 0.0f);
+    }
+
+    /**
+     * Aim the motor at `$angle`, arriving in `dt:` seconds. It sets the
+     * motor's velocity, so call it every step, with the motor on.
+     */
+    public function setMotorTarget(float32 $angle, dt: float32 $dt) : void
+    {
+        cHingeSetMotorTarget($this->joint->raw, $angle, $dt);
+    }
+
+    /**
+     * A new axis, in A's local space.
+     */
+    public function setAxis(Vec3 $axisA) : void
+    {
+        cHingeSetAxis($this->joint->raw, &$axisA);
+    }
+
+    public function setFrames(Transform $frameA, Transform $frameB) : void
+    {
+        cHingeSetFrames($this->joint->raw, &$frameA, &$frameB);
+    }
+}

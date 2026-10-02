@@ -1,0 +1,11 @@
+#[module: "libbullet-examples"]
+#[depends: ".."]
+#[sources: ["drop.eco", "pendulum.eco", "ragdoll.eco", "triggers.eco", "vehicle.eco", "character.eco", "cloth.eco"]]
+
+#[target: exe { name: "drop", entry: "drop.eco" }]
+#[target: exe { name: "pendulum", entry: "pendulum.eco" }]
+#[target: exe { name: "ragdoll", entry: "ragdoll.eco" }]
+#[target: exe { name: "triggers", entry: "triggers.eco" }]
+#[target: exe { name: "vehicle", entry: "vehicle.eco" }]
+#[target: exe { name: "character", entry: "character.eco" }]
+#[target: exe { name: "cloth", entry: "cloth.eco" }]

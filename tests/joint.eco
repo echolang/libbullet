@@ -1,0 +1,252 @@
+use std::math;
+
+test joint_surface
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::Hinge $hinge = bt::Hinge(
+        $p[0],
+        $p[1],
+        pivotA: bt::Vec3(),
+        pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f),
+        axisA: bt::Vec3(0.0f, 0.0f, 1.0f),
+        axisB: bt::Vec3(0.0f, 0.0f, 1.0f)
+    );
+    bt::Joint $j = $hinge->joint();
+    assert($j->a->id() == $p[0]->id());
+    bt::Body $b = guard $j->b else {
+        die('expected a second body');
+    }
+    assert($b->id() == $p[1]->id());
+
+    assert($j->enabled());
+    $j->setEnabled(false);
+    assert(!$j->enabled());
+    $j->setEnabled(true);
+    $j->setIterations(20);
+    $j->setParam(bt::Param::erp, 0.5f);
+    $j->setParam(bt::Param::cfm, 0.0f, dof: bt::Dof::angularZ);
+    $j->setDebugSize(0.5f);
+
+    assert(!$world->add($hinge, noCollide: true)->failed());
+    assert($world->add($hinge)->failed());
+    run($world, 20);
+    bt::JointFeedback $f = $j->feedback();
+    assert($f->forceA->length() > 0.0f);
+    // the joint pulls the two bodies towards each other with equal force
+    assert(near(($f->forceA + $f->forceB)->length(), 0.0f, 0.05f));
+
+    status<bt::Error> $busy = $world->remove($p[1]);
+    assert($busy->failed());
+    bt::Error $e = $busy->failure();
+    match ($e) {
+        bt::Error::inUse => {},
+        else => { assert(false, 'expected inUse'); },
+    };
+
+    assert(!$world->remove($hinge)->failed());
+    assert($world->remove($hinge)->failed());
+    assert(!$world->remove($p[1])->failed());
+}
+
+test breaking_impulse_breaks_a_joint
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::PointToPoint $rope = bt::PointToPoint($p[0], $p[1], pivotA: bt::Vec3(), pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f));
+    $rope->joint()->setBreakingImpulse(0.05f);
+    assert(near($rope->joint()->breakingImpulse(), 0.05f));
+    assert(!$world->add($rope, noCollide: true)->failed());
+
+    run($world, 60);
+    assert(!$rope->joint()->enabled());
+    assert($p[1]->position()->y < -2.0f);
+}
+
+test single_body_joints_hold_to_the_world
+{
+    bt::World $world = bt::World();
+    bt::Body $bob = bt::Body(bt::Shape(sphere: 0.2f), 1.0f, at: bt::Transform(bt::Vec3(1.0f, 5.0f, 0.0f)));
+    assert(!$world->add($bob)->failed());
+
+    // hang it from the world one unit to its left
+    bt::PointToPoint $rope = bt::PointToPoint($bob, pivot: bt::Vec3(-1.0f, 0.0f, 0.0f));
+    assert($rope->joint()->b == null);
+    assert(near($rope->pivotB()->x, 0.0f) && near($rope->pivotB()->y, 5.0f));
+    assert(!$world->add($rope)->failed());
+    run($world, 60);
+    bt::Vec3 $from = $bob->position() - bt::Vec3(0.0f, 5.0f, 0.0f);
+    assert(near($from->length(), 1.0f, 0.15f));
+    assert($bob->position()->y < 4.8f);
+
+    bt::Body $block = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(5.0f, 3.0f, 0.0f)));
+    assert(!$world->add($block)->failed());
+    bt::Fixed $weld = bt::Fixed($block);
+    assert(!$world->add($weld)->failed());
+    run($world, 60);
+    assert(near($block->position()->y, 3.0f, 0.02f));
+}
+
+test hinge_motor_spins_it_up
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $wheel = bt::Body(bt::Shape(cylinder: bt::Vec3(1.0f, 0.1f, 1.0f)), 1.0f);
+    assert(!$world->add($wheel)->failed());
+    bt::Hinge $axle = bt::Hinge($wheel, pivot: bt::Vec3(), axis: bt::Vec3(0.0f, 1.0f, 0.0f));
+    $axle->setMotor(3.0f, maxImpulse: 10.0f);
+    assert(!$world->add($axle)->failed());
+
+    run($world, 60);
+    assert(near($wheel->angularVelocity()->y, 3.0f, 0.1f));
+
+    $axle->disableMotor();
+    $axle->setLimit(-0.5f, 0.5f);
+    assert(near($axle->lowLimit(), -0.5f));
+    assert(near($axle->highLimit(), 0.5f));
+}
+
+test slider_motor_drives_along_the_rail
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $cart = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f);
+    assert(!$world->add($cart)->failed());
+    bt::Slider $rail = bt::Slider($cart, frame: bt::Transform());
+    $rail->setLinearLimit(-10.0f, 10.0f);
+    $rail->setLinearMotor(2.0f, maxForce: 50.0f);
+    assert(!$world->add($rail)->failed());
+
+    run($world, 60);
+    assert(near($cart->velocity()->x, 2.0f, 0.1f));
+    assert(near($cart->position()->y, 0.0f, 0.01f));
+    assert(near($rail->angle(), 0.0f, 0.01f));
+}
+
+test cone_twist_holds_its_swing
+{
+    bt::World $world = bt::World();
+    bt::Body $torso = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), at: bt::Transform(bt::Vec3(0.0f, 5.0f, 0.0f)));
+    bt::Body $arm = bt::Body(bt::Shape(capsule: 0.1f, height: 1.0f, axis: .x), 1.0f, at: bt::Transform(bt::Vec3(1.2f, 5.0f, 0.0f)));
+    assert(!$world->add($torso)->failed());
+    assert(!$world->add($arm)->failed());
+
+    // shoulder at the torso's +X face, cone axis along +X
+    bt::ConeTwist $shoulder = bt::ConeTwist(
+        $torso,
+        $arm,
+        frameA: bt::Transform(bt::Vec3(0.6f, 0.0f, 0.0f)),
+        frameB: bt::Transform(bt::Vec3(-0.6f, 0.0f, 0.0f))
+    );
+    $shoulder->setLimit(0.3f, 0.3f, 0.1f);
+    assert(near($shoulder->swingSpan1(), 0.3f));
+    assert(!$world->add($shoulder, noCollide: true)->failed());
+
+    run($world, 120);
+    // the arm may droop 0.3 rad at most, so its tip stays well above hanging
+    bt::Vec3 $along = $arm->position() - bt::Vec3(0.6f, 5.0f, 0.0f);
+    float32 $droop = math::atan2(-$along->y, $along->x);
+    assert($droop > 0.1f && $droop < 0.45f);
+    assert(math::abs($shoulder->twist()) < 0.2f);
+}
+
+test gear_couples_two_wheels
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Shape $disc = bt::Shape(cylinder: bt::Vec3(0.5f, 0.1f, 0.5f));
+    bt::Body $a = bt::Body($disc, 1.0f, at: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f)));
+    bt::Body $b = bt::Body($disc, 1.0f, at: bt::Transform(bt::Vec3(1.0f, 0.0f, 0.0f)));
+    assert(!$world->add($a)->failed());
+    assert(!$world->add($b)->failed());
+    bt::Vec3 $up = bt::Vec3(0.0f, 1.0f, 0.0f);
+    assert(!$world->add(bt::Hinge($a, pivot: bt::Vec3(), axis: $up))->failed());
+    assert(!$world->add(bt::Hinge($b, pivot: bt::Vec3(), axis: $up))->failed());
+
+    bt::Gear $gear = bt::Gear($a, $b, axisA: $up, axisB: $up, ratio: 2.0f);
+    assert(near($gear->ratio(), 2.0f));
+    assert(!$world->add($gear)->failed());
+
+    $a->setAngularVelocity(bt::Vec3(0.0f, 4.0f, 0.0f));
+    run($world, 30);
+    float32 $wa = $a->angularVelocity()->y;
+    float32 $wb = $b->angularVelocity()->y;
+    assert(math::abs($wb) > 0.1f);
+    assert(near(math::abs($wa / $wb), 2.0f, 0.2f));
+}
+
+test fixed_keeps_the_relative_pose
+{
+    bt::World $world = groundWorld();
+    bt::Body $a = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    bt::Body $b = bt::Body(bt::Shape(sphere: 0.3f), 1.0f, at: bt::Transform(bt::Vec3(1.0f, 3.5f, 0.0f)));
+    assert(!$world->add($a)->failed());
+    assert(!$world->add($b)->failed());
+    assert(!$world->add(bt::Fixed($a, $b), noCollide: true)->failed());
+
+    run($world, 180);
+    bt::Vec3 $gap = $b->position() - $a->position();
+    assert(near($gap->length(), bt::Vec3(1.0f, 0.5f, 0.0f)->length(), 0.05f));
+}
+
+test hinge2_and_universal_build_and_report
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $chassis = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 0.2f, 2.0f)), 10.0f);
+    bt::Body $wheel = bt::Body(bt::Shape(sphere: 0.4f), 1.0f, at: bt::Transform(bt::Vec3(1.5f, -0.3f, 1.5f)));
+    assert(!$world->add($chassis)->failed());
+    assert(!$world->add($wheel)->failed());
+
+    bt::Hinge2 $strut = bt::Hinge2(
+        $chassis,
+        $wheel,
+        anchor: bt::Vec3(1.5f, -0.3f, 1.5f),
+        axis1: bt::Vec3(0.0f, 1.0f, 0.0f),
+        axis2: bt::Vec3(1.0f, 0.0f, 0.0f)
+    );
+    $strut->setSteering(-0.5f, 0.5f);
+    $strut->enableSpring(bt::Dof::linearZ, true);
+    $strut->setStiffness(bt::Dof::linearZ, 50.0f);
+    $strut->setDamping(bt::Dof::linearZ, 1.0f);
+    $strut->setEquilibriumPoint();
+    assert(!$world->add($strut, noCollide: true)->failed());
+
+    $wheel->setAngularVelocity(bt::Vec3(2.0f, 0.0f, 0.0f));
+    run($world, 30);
+    assert(math::abs($strut->angle2()) > 0.1f);
+    assert(math::abs($strut->angle1()) < 0.1f);
+
+    bt::Body $shaft = bt::Body(bt::Shape(box: bt::Vec3(0.1f, 0.1f, 1.0f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.0f, 4.0f)));
+    assert(!$world->add($shaft)->failed());
+    bt::Universal $joint = bt::Universal(
+        $chassis,
+        $shaft,
+        anchor: bt::Vec3(0.0f, 0.0f, 3.0f),
+        axis1: bt::Vec3(0.0f, 1.0f, 0.0f),
+        axis2: bt::Vec3(1.0f, 0.0f, 0.0f)
+    );
+    $joint->setLimit(-0.4f, 0.4f, -0.4f, 0.4f);
+    assert(!$world->add($joint, noCollide: true)->failed());
+    run($world, 10);
+    assert(math::abs($joint->angle1()) < 0.45f);
+}
+
+test sixdof_readbacks_and_legacy_limits
+{
+    bt::World $world = bt::World();
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 5.0f, 0.0f)));
+    assert(!$world->add($box)->failed());
+
+    // free to slide down Y by up to one unit, nothing else
+    bt::SixDof $rail = bt::SixDof($box, frame: bt::Transform());
+    $rail->setLimit(bt::Dof::linearY, -1.0f, 0.0f);
+    assert(!$world->add($rail)->failed());
+    run($world, 120);
+    assert(near($rail->position(.y), -1.0f, 0.05f));
+    assert(near($rail->angle(.x), 0.0f, 0.01f));
+    assert(near($box->position()->y, 4.0f, 0.05f));
+
+    bt::Body $other = bt::Body(bt::Shape(sphere: 0.3f), 1.0f, at: bt::Transform(bt::Vec3(3.0f, 5.0f, 0.0f)));
+    assert(!$world->add($other)->failed());
+    bt::LegacySixDof $old = bt::LegacySixDof($box, $other, frameA: bt::Transform(bt::Vec3(3.0f, 0.0f, 0.0f)), frameB: bt::Transform());
+    $old->setLinearLimit(bt::Vec3(), bt::Vec3());
+    $old->setAngularLimit(bt::Vec3(), bt::Vec3());
+    assert(!$world->add($old)->failed());
+}

@@ -1,0 +1,105 @@
+/**
+ * A car wheel on its strut: B spins about `axis2` and steers about
+ * `axis1`, with a spring along `axis1` for suspension.
+ */
+
+namespace bt;
+
+/**
+ * Bullet's btHinge2Constraint, a SixDof set up as a wheel. Suspension is
+ * its linear Z; spin and steering are its angular X and Z. The SixDof
+ * knobs it exposes take the same Dof values.
+ */
+public class Hinge2 : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Anchor and axes in world space; the axes must be perpendicular.
+     * Typically `$a` is the chassis, `$b` the wheel, `axis1` up and
+     * `axis2` the axle.
+     */
+    public constructor(Body $a, Body $b, anchor: Vec3 $anchor, axis1: Vec3 $axis1, axis2: Vec3 $axis2)
+    {
+        $this->joint = Joint(cHinge2Create($a->raw, $b->raw, &$anchor, &$axis1, &$axis2), $a, $b, 'hinge2');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    /**
+     * How far the wheel may steer, in radians. Equal values lock it.
+     */
+    public function setSteering(float32 $low, float32 $high) : void
+    {
+        cHinge2SetSteering($this->joint->raw, $low, $high);
+    }
+
+    /**
+     * The steering angle, about `axis1`.
+     */
+    public const function angle1() : float32
+    {
+        return cSixDofAngle($this->joint->raw, Axis::z->value());
+    }
+
+    /**
+     * The spin angle, about `axis2`.
+     */
+    public const function angle2() : float32
+    {
+        return cSixDofAngle($this->joint->raw, Axis::x->value());
+    }
+
+    public function setLimit(Dof $dof, float32 $low, float32 $high) : void
+    {
+        cSixDofSetLimit($this->joint->raw, $dof->value(), $low, $high);
+    }
+
+    public function enableSpring(Dof $dof, bool $on) : void
+    {
+        cSixDofEnableSpring($this->joint->raw, $dof->value(), $on as uint32);
+    }
+
+    public function setStiffness(Dof $dof, float32 $stiffness, limitIfNeeded: bool $limit = true) : void
+    {
+        cSixDofSetStiffness($this->joint->raw, $dof->value(), $stiffness, $limit as uint32);
+    }
+
+    public function setDamping(Dof $dof, float32 $damping, limitIfNeeded: bool $limit = true) : void
+    {
+        cSixDofSetDamping($this->joint->raw, $dof->value(), $damping, $limit as uint32);
+    }
+
+    public function setEquilibriumPoint() : void
+    {
+        cSixDofSetEquilibrium($this->joint->raw);
+    }
+
+    public function enableMotor(Dof $dof, bool $on) : void
+    {
+        cSixDofEnableMotor($this->joint->raw, $dof->value(), $on as uint32);
+    }
+
+    public function setTargetVelocity(Dof $dof, float32 $velocity) : void
+    {
+        cSixDofSetTargetVelocity($this->joint->raw, $dof->value(), $velocity);
+    }
+
+    public function setMaxMotorForce(Dof $dof, float32 $force) : void
+    {
+        cSixDofSetMaxMotorForce($this->joint->raw, $dof->value(), $force);
+    }
+
+    public function setServo(Dof $dof, bool $on) : void
+    {
+        cSixDofSetServo($this->joint->raw, $dof->value(), $on as uint32);
+    }
+
+    public function setServoTarget(Dof $dof, float32 $target) : void
+    {
+        cSixDofSetServoTarget($this->joint->raw, $dof->value(), $target);
+    }
+}

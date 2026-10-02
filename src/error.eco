@@ -1,0 +1,52 @@
+/**
+ * Why a call did not do what you asked.
+ *
+ * Bullet itself almost never fails. These are the cases this library
+ * refuses before handing Bullet something it would take and then
+ * misbehave on.
+ */
+
+namespace bt;
+
+public enum Error
+{
+    case emptyHull;
+    case sizeMismatch(int32 $expected, int32 $got);
+    case badDimensions(int32 $width, int32 $length);
+    case badSegments(int32 $segments);
+    case alreadyInWorld;
+    case notInWorld;
+    case notConvex;
+    case notCompound;
+    case staticOnly;
+    case emptyMesh;
+    case badTriangles(int32 $indices);
+    case badIndex(int32 $index, int32 $count);
+    case chassisNotInWorld;
+    case inUse;
+    case rigidOnly;
+
+    /**
+     * What went wrong, in words.
+     */
+    public const function message() : string
+    {
+        return match ($this) {
+            Error::emptyHull => 'a convex hull needs at least one point',
+            Error::sizeMismatch($expected, $got) => "expected {$expected} values, got {$got}",
+            Error::badDimensions($width, $length) => "a grid needs at least 2 x 2 points, got {$width} x {$length}",
+            Error::badSegments($segments) => "a rope needs at least one segment, got {$segments}",
+            Error::alreadyInWorld => 'already in a world',
+            Error::notInWorld => 'not in this world',
+            Error::notConvex => 'needs a convex shape',
+            Error::notCompound => 'not a compound shape',
+            Error::staticOnly => 'this shape only works on a static or kinematic body',
+            Error::emptyMesh => 'a mesh needs at least one triangle',
+            Error::badTriangles($indices) => "a mesh needs three indices per triangle, got {$indices}",
+            Error::badIndex($index, $count) => "index {$index} is out of range, {$count} available",
+            Error::chassisNotInWorld => 'add the chassis body to the world before its vehicle',
+            Error::inUse => 'a joint, vehicle or soft body anchor in this world still uses it; remove that first',
+            Error::rigidOnly => 'a parallel world holds rigid bodies only, no soft bodies',
+        };
+    }
+}

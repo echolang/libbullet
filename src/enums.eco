@@ -1,0 +1,100 @@
+/**
+ * Small closed sets Bullet takes as an int. Typed here so a wrong index
+ * is a compile error instead of a silent no-op.
+ */
+
+namespace bt;
+
+/**
+ * The axis a capsule, cylinder, cone or heightfield runs along.
+ */
+public enum Axis : int32
+{
+    case x = 0;
+    case y = 1;
+    case z = 2;
+}
+
+/**
+ * One of the six degrees of freedom of a SixDof constraint. The three
+ * linear ones come first, in Bullet's order.
+ */
+public enum Dof : int32
+{
+    case linearX = 0;
+    case linearY = 1;
+    case linearZ = 2;
+    case angularX = 3;
+    case angularY = 4;
+    case angularZ = 5;
+}
+
+/**
+ * How a body moves. Fixed bodies have mass zero and never move; kinematic
+ * ones have mass zero too, but you move them and they push dynamic
+ * bodies out of the way.
+ */
+public enum BodyKind : int32
+{
+    case dynamic = 0;
+    case fixed = 1;
+    case kinematic = 2;
+}
+
+/**
+ * What a Shape is underneath.
+ */
+public enum ShapeKind : int32
+{
+    case empty = 0;
+    case sphere = 1;
+    case box = 2;
+    case capsule = 3;
+    case cylinder = 4;
+    case cone = 5;
+    case plane = 6;
+    case hull = 7;
+    case spheres = 8;
+    case heightfield = 9;
+    case mesh = 10;
+    case gimpact = 11;
+    case compound = 12;
+}
+
+/**
+ * The constraint solver a World runs. Sequential impulse is Bullet's
+ * default and the fast one. NNCG converges better on stacks and chains
+ * for a little more time. Dantzig is an MLCP solver: it solves each
+ * island as one system, the most accurate and much the slowest, for
+ * small articulated setups.
+ */
+public enum SolverKind : int32
+{
+    case sequential = 0;
+    case nncg = 1;
+    case dantzig = 2;
+}
+
+/**
+ * A constraint's softness knobs, as Bullet numbers them. ERP is how much
+ * of the error is corrected per step, CFM how much the constraint may
+ * give. The stop pair applies at limits only.
+ */
+public enum Param : int32
+{
+    case erp = 1;
+    case stopErp = 2;
+    case cfm = 3;
+    case stopCfm = 4;
+}
+
+/**
+ * How a soft body collides with rigid bodies: its vertices against their
+ * distance fields, which is cheap and fine for cloth and ropes, or
+ * convex clusters, which handles volumes and needs `clusters()` first.
+ */
+public enum SoftCollision : int32
+{
+    case vertices = 0;
+    case clusters = 1;
+}

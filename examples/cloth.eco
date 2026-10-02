@@ -1,0 +1,51 @@
+/**
+ * A sheet of cloth pinned at two corners, falling onto a ball in a
+ * breeze.
+ */
+
+$world = bt::World();
+
+$ball = bt::Body(bt::Shape(sphere: 1.0f), at: bt::Transform(bt::Vec3(0.0f, 1.5f, 0.8f)));
+guard $world->add($ball) else ($e) {
+    die("ball: {$e}");
+}
+
+// 3 x 3 metres, 16 x 16 nodes, hanging from its top edge at y = 4
+int32 $n = 16;
+bt::SoftBody $cloth = guard bt::SoftBody::cloth(
+    bt::Vec3(-1.5f, 4.0f, 0.0f),
+    bt::Vec3(1.5f, 4.0f, 0.0f),
+    bt::Vec3(-1.5f, 4.0f, 3.0f),
+    bt::Vec3(1.5f, 4.0f, 3.0f),
+    resolution: $n,
+    $n
+) else ($e) {
+    die("cloth: {$e}");
+}
+$cloth->setMass(0.5f);
+$cloth->bend(2);
+$cloth->pin(0);
+$cloth->pin($n - 1);
+
+bt::SoftConfig $config = $cloth->config();
+$config->positionIterations = 4;
+$config->drag = 0.1f;
+$config->lift = 0.05f;
+$cloth->setConfig($config);
+$cloth->setWind(bt::Vec3(1.0f, 0.0f, 0.0f));
+
+guard $world->add($cloth) else ($e) {
+    die("cloth: {$e}");
+}
+
+int32 $corner = $n * $n - 1;
+for (int32 $frame = 0; $frame <= 240; $frame++) {
+    if ($frame % 30 == 0) {
+        array<bt::Vec3> $nodes = $cloth->nodes();
+        bt::Vec3 $free = $nodes[$corner];
+        bt::Aabb $box = $cloth->aabb();
+        echo "t={$frame}  free corner=({$free->x:.2f}, {$free->y:.2f}, {$free->z:.2f})  lowest y={$box->min->y:.2f}";
+    }
+
+    $world->step(1.0f / 60.0f);
+}

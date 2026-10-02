@@ -1,0 +1,78 @@
+/**
+ * The parallel world: a pile steps and sleeps across threads like the plain world does, soft
+ * bodies are refused, and the scheduler comes back after a shutdown.
+ */
+
+/**
+ * A parallel world with a static ground plane and a 4 x 4 x 4 stack of boxes over it.
+ */
+internal function parallelPile(int32 $threads) : bt::World
+{
+    bt::World $world = bt::World(threads: $threads);
+    bt::Body $ground = bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)));
+    guard $world->add($ground) else ($e) {
+        die("{$e}");
+    }
+
+    bt::Shape $box = bt::Shape(box: bt::Vec3(0.25f, 0.25f, 0.25f));
+    int32 $slot = 0;
+    for (int32 $y = 0; $y < 4; $y++) {
+        for (int32 $z = 0; $z < 4; $z++) {
+            for (int32 $x = 0; $x < 4; $x++) {
+                bt::Vec3 $at = bt::Vec3(($x as float32) * 0.6f, 0.5f + ($y as float32) * 0.6f, ($z as float32) * 0.6f);
+                bt::Body $b = bt::Body($box, 1.0f, at: bt::Transform($at));
+                $b->setSlot($slot);
+                $slot = $slot + 1;
+                guard $world->add($b) else ($e) {
+                    die("{$e}");
+                }
+            }
+        }
+    }
+
+    return $world;
+}
+
+test the_machine_has_threads_for_a_parallel_world
+{
+    assert(bt::maxThreads() >= 2);
+}
+
+test a_parallel_pile_falls_settles_and_sleeps
+{
+    bt::World $world = parallelPile(4);
+    array<bt::BodyPose> $poses = arr::room<bt::BodyPose>(64);
+    $world->advance(1.0f / 60.0f);
+    $world->moving($poses);
+    assert($poses->count() == 64);
+
+    for (int32 $i = 0; $i < 900; $i++) {
+        $world->advance(1.0f / 60.0f);
+    }
+
+    // everything came to rest on the ground, nothing fell through it
+    $world->moving($poses);
+    assert($poses->count() == 0);
+}
+
+test a_parallel_world_refuses_soft_bodies
+{
+    bt::World $world = bt::World(threads: 2);
+    bt::SoftBody $rope = guard bt::SoftBody::rope(bt::Vec3(0.0f, 5.0f, 0.0f), to: bt::Vec3(4.0f, 5.0f, 0.0f), segments: 4) else ($e) {
+        die("{$e}");
+    }
+    status<bt::Error> $added = $world->add($rope);
+    assert($added->failed());
+}
+
+test the_scheduler_comes_back_after_a_shutdown
+{
+    bt::World $before = parallelPile(2);
+    $before->advance(1.0f / 60.0f);
+    bt::shutdown();
+    // a world built before steps on one thread now, a new one restarts the scheduler
+    $before->advance(1.0f / 60.0f);
+    bt::World $after = parallelPile(2);
+    $after->advance(1.0f / 60.0f);
+    bt::shutdown();
+}

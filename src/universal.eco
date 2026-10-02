@@ -1,0 +1,42 @@
+/**
+ * A cardan joint: B turns about two perpendicular axes through one
+ * anchor, like a driveshaft coupling.
+ */
+
+namespace bt;
+
+public class Universal : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Anchor and axes in world space; the axes must be perpendicular.
+     */
+    public constructor(Body $a, Body $b, anchor: Vec3 $anchor, axis1: Vec3 $axis1, axis2: Vec3 $axis2)
+    {
+        $this->joint = Joint(cUniversalCreate($a->raw, $b->raw, &$anchor, &$axis1, &$axis2), $a, $b, 'universal joint');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    /**
+     * Radian ranges about `axis1` and `axis2`.
+     */
+    public function setLimit(float32 $low1, float32 $high1, float32 $low2, float32 $high2) : void
+    {
+        cUniversalSetLimit($this->joint->raw, $low1, $high1, $low2, $high2);
+    }
+
+    public const function angle1() : float32
+    {
+        return cUniversalAngle1($this->joint->raw);
+    }
+
+    public const function angle2() : float32
+    {
+        return cUniversalAngle2($this->joint->raw);
+    }
+}

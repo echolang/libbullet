@@ -1,0 +1,40 @@
+test debug_is_empty_until_enabled
+{
+    bt::World $world = groundWorld();
+    assert($world->debugLines()->empty());
+}
+
+test debug_draws_wireframe
+{
+    bt::World $world = bt::World();
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)));
+    assert(!$world->add($box)->failed());
+
+    $world->enableDebug();
+    array<float32> $lines = $world->debugLines();
+    assert($lines->count() > 0);
+    assert($lines->count() % 12 == 0);
+
+    bt::DebugOptions $everything = bt::DebugOptions($aabb: true, $contacts: true);
+    $world->enableDebug($everything);
+    assert($world->debugLines()->count() > $lines->count());
+
+    $world->disableDebug();
+    assert($world->debugLines()->empty());
+}
+
+test hidden_bodies_are_not_drawn
+{
+    bt::World $world = bt::World();
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)));
+    assert(!$world->add($box)->failed());
+    $world->enableDebug();
+
+    array<float32> $lines = arr::room<float32>(64);
+    $world->debugLines(into: $lines);
+    assert($lines->count() > 0);
+
+    $box->setDebugDraw(false);
+    $world->debugLines(into: $lines);
+    assert($lines->empty());
+}

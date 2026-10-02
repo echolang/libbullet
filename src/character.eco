@@ -1,0 +1,198 @@
+/**
+ * A player: Bullet's kinematic character controller. It is not a body.
+ * It sweeps a convex shape through the world, slides along walls, climbs
+ * steps up to its step height, stays off slopes steeper than its max
+ * slope, and falls and jumps under a gravity of its own.
+ */
+
+namespace bt;
+
+public class Character
+{
+    internal const ptr<eco_bt_character> $raw;
+    public const Shape $shape;
+
+    private constructor(ptr<eco_bt_character> $raw, Shape $shape)
+    {
+        $this->raw = live($raw, 'out of memory creating a character');
+        $this->shape = $shape;
+    }
+
+    /**
+     * A character standing `at:` a place, able to climb `stepHeight:`
+     * without jumping, with `up:` as up. A capsule is the usual shape;
+     * any convex one will do.
+     */
+    public static function create(
+        Shape $shape,
+        at: Transform $at = Transform(),
+        stepHeight: float32 $stepHeight = 0.35f,
+        up: Vec3 $up = Vec3(0.0f, 1.0f, 0.0f)
+    ) : result<Character, Error>
+    {
+        if (!$shape->convex()) {
+            return .error(.notConvex);
+        }
+
+        return .ok(Character(cCharacterCreate($shape->raw, &$at, $stepHeight, &$up), $shape));
+    }
+
+    destructor()
+    {
+        cCharacterDestroy($this->raw);
+    }
+
+    public const function id() : uint64
+    {
+        return cCharacterId($this->raw);
+    }
+
+    public const function transform() : Transform
+    {
+        $out = Transform();
+        cCharacterTransform($this->raw, &$out);
+        return $out;
+    }
+
+    public const function position() : Vec3
+    {
+        return $this->transform()->origin;
+    }
+
+    /**
+     * Teleport to `$origin`.
+     */
+    public function warp(Vec3 $origin) : void
+    {
+        cCharacterWarp($this->raw, &$origin);
+    }
+
+    /**
+     * Walk by `$perStep` every fixed step from now on, until told
+     * otherwise. Zero stops.
+     */
+    public function walk(Vec3 $perStep) : void
+    {
+        cCharacterWalk($this->raw, &$perStep);
+    }
+
+    /**
+     * Walk at `$velocity` for `duration:` seconds, then stop. The one to
+     * use when your steps are not the world's fixed step.
+     */
+    public function setVelocity(Vec3 $velocity, duration: float32 $seconds) : void
+    {
+        cCharacterSetVelocity($this->raw, &$velocity, $seconds);
+    }
+
+    public const function velocity() : Vec3
+    {
+        $out = Vec3();
+        cCharacterVelocity($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Jump with the jump speed along up.
+     */
+    public function jump() : void
+    {
+        $zero = Vec3();
+        cCharacterJump($this->raw, &$zero);
+    }
+
+    /**
+     * Jump with this velocity instead.
+     */
+    public function jump(Vec3 $velocity) : void
+    {
+        cCharacterJump($this->raw, &$velocity);
+    }
+
+    public const function canJump() : bool
+    {
+        return cCharacterCanJump($this->raw) != 0;
+    }
+
+    public const function grounded() : bool
+    {
+        return cCharacterGrounded($this->raw) != 0;
+    }
+
+    public function setJumpSpeed(float32 $speed) : void
+    {
+        cCharacterSetJumpSpeed($this->raw, $speed);
+    }
+
+    /**
+     * The terminal velocity of a fall.
+     */
+    public function setFallSpeed(float32 $speed) : void
+    {
+        cCharacterSetFallSpeed($this->raw, $speed);
+    }
+
+    public function setMaxJumpHeight(float32 $height) : void
+    {
+        cCharacterSetMaxJumpHeight($this->raw, $height);
+    }
+
+    /**
+     * The steepest slope, in radians, the character can walk up. 45
+     * degrees by default.
+     */
+    public const function maxSlope() : float32
+    {
+        return cCharacterMaxSlope($this->raw);
+    }
+
+    public function setMaxSlope(float32 $radians) : void
+    {
+        cCharacterSetMaxSlope($this->raw, $radians);
+    }
+
+    /**
+     * The character's own gravity: three times Earth's by default, which
+     * is what makes platformer jumps feel right. It ignores the world's.
+     */
+    public const function gravity() : Vec3
+    {
+        $out = Vec3();
+        cCharacterGravity($this->raw, &$out);
+        return $out;
+    }
+
+    public function setGravity(Vec3 $gravity) : void
+    {
+        cCharacterSetGravity($this->raw, &$gravity);
+    }
+
+    public const function stepHeight() : float32
+    {
+        return cCharacterStepHeight($this->raw);
+    }
+
+    public function setStepHeight(float32 $height) : void
+    {
+        cCharacterSetStepHeight($this->raw, $height);
+    }
+
+    public function setUp(Vec3 $up) : void
+    {
+        cCharacterSetUp($this->raw, &$up);
+    }
+
+    /**
+     * How deep the character may sink into geometry before it is pushed
+     * out, 0.2 by default.
+     */
+    public function setMaxPenetration(float32 $depth) : void
+    {
+        cCharacterSetMaxPenetration($this->raw, $depth);
+    }
+
+    internal const function inWorld() : bool
+    {
+        return cCharacterInWorld($this->raw) != 0;
+    }
+}

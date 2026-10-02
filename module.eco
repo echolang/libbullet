@@ -1,0 +1,47 @@
+/*
+ * libbullet - Bullet Physics 3.25 bindings for Echo.
+ *
+ * The C++ library is vendored and compiled in. Echo talks to a small
+ * extern "C" shim of heap pointers, never to Bullet's own classes. A
+ * consumer adds it with epm and nothing else.
+ */
+
+#[module: "libbullet"]
+#[version: "0.1.0"] // x-release-please-version
+#[epm::license: "MIT"]
+#[epm::description: "Bullet Physics 3.25 bindings for Echo, C++ library vendored and compiled in"]
+
+#[cc: include "third_party/bullet3/src"]
+#[cc: include "c"]
+// BT_THREADSAFE builds the task scheduler a parallel World steps on; a plain World never touches it
+#[cc: define { BT_NO_PROFILE: 1, BT_THREADSAFE: 1 }]
+// btGjkConvexCast and btContinuousConvexCollision share a unity TU
+#[cc: flag "-Wno-macro-redefined"]
+// BulletSoftBody as shipped: 1-bit bitfields set to 1, and sprintf
+#[cc: flag "-Wno-single-bit-bitfield-constant-conversion"]
+#[cc: flag "-Wno-deprecated-declarations"]
+#[cc: sources [
+    "third_party/bullet3/src/btLinearMathAll.cpp",
+    "third_party/bullet3/src/btBulletCollisionAll.cpp",
+    "third_party/bullet3/src/btBulletDynamicsAll.cpp",
+    "third_party/bullet3/src/BulletSoftBody/*.cpp",
+    "third_party/bullet3/src/BulletSoftBody/BulletReducedDeformableBody/*.cpp",
+    "c/*.cpp"
+]]
+
+// echoc links through the C driver, so the C++ runtime is ours to name
+#[if: family == darwin]
+#[link: lib { name: "c++", runtime: process }]
+#[elif: os == linux]
+#[link: lib { name: "stdc++", file: "libstdc++.so.6" }]
+#[link: lib { name: "m", runtime: process }]
+#[link: lib { name: "pthread", runtime: process }]
+#[elif: os == windows]
+// clang on the MSVC target pulls the STL in through default libs
+#[end]
+
+#[sources: "src/*.eco"]
+
+#[target: test] {
+    #[sources: "tests/*.eco"]
+}

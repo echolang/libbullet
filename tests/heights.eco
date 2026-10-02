@@ -1,0 +1,99 @@
+/**
+ * A heightfield that reads its heights in place.
+ */
+internal class Grid : bt::HeightSamples
+{
+    internal array<float32> $samples;
+    internal int32 $w;
+    internal int32 $l;
+    internal float32 $lo;
+    internal float32 $hi;
+
+    internal constructor(int32 $w, int32 $l, float32 $height)
+    {
+        $this->w = $w;
+        $this->l = $l;
+        $this->lo = 0.0f;
+        $this->hi = 4.0f;
+        $this->samples = arr::room<float32>(($w * $l) as usize);
+        for (int32 $i = 0; $i < $w * $l; $i++) {
+            $this->samples[] = $height;
+        }
+    }
+
+    public const function width() : int32
+    {
+        return $this->w;
+    }
+
+    public const function length() : int32
+    {
+        return $this->l;
+    }
+
+    public const function heights() : ptr<const float32>
+    {
+        return $this->samples->data();
+    }
+
+    public const function low() : float32
+    {
+        return $this->lo;
+    }
+
+    public const function high() : float32
+    {
+        return $this->hi;
+    }
+}
+
+test borrowed_heightfield_reads_in_place
+{
+    Grid $grid = Grid(5, 5, 1.0f);
+    bt::Shape $field = guard bt::Shape::heightfield(borrowing: $grid, accelerate: true) else ($e) {
+        die("{$e}");
+    }
+    assert($field->kind() == bt::ShapeKind::heightfield);
+
+    // centred halfway between low and high: offset the body to put samples at their heights
+    bt::World $world = bt::World();
+    bt::Body $ground = bt::Body($field, at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+    assert(!$world->add($ground)->failed());
+
+    bt::RayHit $flat = guard $world->ray(bt::Vec3(0.3f, 10.0f, 0.3f), bt::Vec3(0.3f, -10.0f, 0.3f)) else {
+        die('expected to hit the field');
+    }
+    assert(near($flat->point->y, 1.0f, 0.001f));
+
+    // a write in place is seen by the next query, no copy in between
+    for (usize $i = 0; $i < $grid->samples->count(); $i++) {
+        $grid->samples[$i] = 3.0f;
+    }
+    bt::RayHit $raised = guard $world->ray(bt::Vec3(0.3f, 10.0f, 0.3f), bt::Vec3(0.3f, -10.0f, 0.3f)) else {
+        die('expected to hit the raised field');
+    }
+    assert(near($raised->point->y, 3.0f, 0.001f));
+}
+
+test borrowed_heightfield_checks_size
+{
+    Grid $grid = Grid(1, 5, 0.0f);
+    result<bt::Shape, bt::Error> $bad = bt::Shape::heightfield(borrowing: $grid);
+    assert($bad->failed());
+}
+
+test borrowed_heightfield_outlives_its_source_handle
+{
+    bt::Shape $field = guard bt::Shape::heightfield(borrowing: Grid(3, 3, 2.0f)) else ($e) {
+        die("{$e}");
+    }
+
+    // the shape holds the grid; the only other handle is gone
+    bt::World $world = bt::World();
+    bt::Body $ground = bt::Body($field, at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+    assert(!$world->add($ground)->failed());
+    bt::RayHit $hit = guard $world->ray(bt::Vec3(0.2f, 10.0f, 0.2f), bt::Vec3(0.2f, -10.0f, 0.2f)) else {
+        die('expected to hit the field');
+    }
+    assert(near($hit->point->y, 2.0f, 0.001f));
+}

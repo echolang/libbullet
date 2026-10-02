@@ -1,0 +1,13 @@
+/**
+ * A dynamic body the last step moved, from `World::moving`: the slot its
+ * owner gave it and where it is now. Field for field `eco_bt_pose` in
+ * c/bt.h, since the shim writes an array of them in one call.
+ */
+
+namespace bt;
+
+public struct BodyPose
+{
+    public int32 $slot = -1;
+    public Transform $at = Transform();
+}

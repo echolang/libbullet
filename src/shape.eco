@@ -1,0 +1,406 @@
+/**
+ * Collision geometry. One shape can back many bodies; each Body keeps
+ * its shape alive, so a shape is freed only once nothing simulates it.
+ */
+
+namespace bt;
+
+use std::math;
+
+public class Shape
+{
+    internal const ptr<eco_bt_shape> $raw;
+
+    /**
+     * A compound's children, in the order they were given. Empty for any
+     * other shape.
+     */
+    public const array<Shape> $children = array<Shape>();
+
+    /**
+     * What a borrowed heightfield reads through, kept alive as long as
+     * the shape. Null for every other shape.
+     */
+    private HeightSamples? $borrowed = null;
+
+    private constructor(ptr<eco_bt_shape> $raw)
+    {
+        $this->raw = live($raw, 'out of memory creating a shape');
+    }
+
+    /**
+     * Nothing at all: collides with nothing. A placeholder, or the shape
+     * of a body that only carries joints.
+     */
+    public constructor()
+    {
+        $this->raw = live(cShapeEmpty(), 'out of memory creating an empty shape');
+    }
+
+    public constructor(sphere: float32 $radius)
+    {
+        $this->raw = live(cShapeSphere($radius), 'out of memory creating a sphere');
+    }
+
+    /**
+     * A box by half its size on each axis, centred on the body.
+     */
+    public constructor(box: Vec3 $halfExtents)
+    {
+        $this->raw = live(cShapeBox(&$halfExtents), 'out of memory creating a box');
+    }
+
+    /**
+     * A capsule: `$height` is the straight middle part, the two caps add
+     * `$radius` on each end.
+     */
+    public constructor(capsule: float32 $radius, height: float32 $height, axis: Axis $axis = .y)
+    {
+        $this->raw = live(cShapeCapsule($radius, $height, $axis->value()), 'out of memory creating a capsule');
+    }
+
+    /**
+     * A cylinder by half extents. The component on `$axis` is half the
+     * height, the other two the radius.
+     */
+    public constructor(cylinder: Vec3 $halfExtents, axis: Axis $axis = .y)
+    {
+        $this->raw = live(cShapeCylinder(&$halfExtents, $axis->value()), 'out of memory creating a cylinder');
+    }
+
+    /**
+     * A cone pointing along `$axis`, centred halfway up its height.
+     */
+    public constructor(cone: float32 $radius, height: float32 $height, axis: Axis $axis = .y)
+    {
+        $this->raw = live(cShapeCone($radius, $height, $axis->value()), 'out of memory creating a cone');
+    }
+
+    /**
+     * An infinite plane: every point p with `normal . p == constant`.
+     * Static only; give its body a mass of zero.
+     */
+    public constructor(plane: Vec3 $normal, constant: float32 $constant = 0.0f)
+    {
+        $this->raw = live(cShapePlane(&$normal, $constant), 'out of memory creating a plane');
+    }
+
+    /**
+     * Several shapes as one, each at its own offset from the body. The
+     * compound keeps every child alive. Its centre is the body's centre
+     * of mass, not the children's, so balance the children around it.
+     */
+    public constructor(compound: const array<Child>& $children)
+    {
+        $this->raw = live(cShapeCompound(), 'out of memory creating a compound');
+
+        $held = array<Shape>();
+        foreach ($children as $child) {
+            $at = $child->at;
+            cShapeCompoundAdd($this->raw, $child->shape->raw, &$at);
+            $held[] = $child->shape;
+        }
+
+        $this->children = $held;
+    }
+
+    destructor()
+    {
+        cShapeDestroy($this->raw);
+    }
+
+    /**
+     * The convex hull around a point cloud, for example a mesh's vertices.
+     * Bullet copies the points and drops the ones inside the hull. With
+     * `simplify:` it also rebuilds the hull from a few dozen points, much
+     * cheaper to collide for a dense mesh.
+     */
+    public static function hull(const array<Vec3>& $points, simplify: bool $simplify = false) : result<Shape, Error>
+    {
+        if ($points->empty()) {
+            return .error(.emptyHull);
+        }
+
+        return .ok(Shape(cShapeHull($points->data(), $points->count() as int32, $simplify as uint32)));
+    }
+
+    /**
+     * The convex hull around a set of spheres: a pill, a peanut, a
+     * rounded box. Cheaper than a compound of spheres.
+     */
+    public static function spheres(const array<Vec3>& $centres, radii: const array<float32>& $radii) : result<Shape, Error>
+    {
+        if ($centres->empty()) {
+            return .error(.emptyHull);
+        }
+
+        if ($radii->count() != $centres->count()) {
+            return .error(.sizeMismatch($centres->count() as int32, $radii->count() as int32));
+        }
+
+        return .ok(Shape(cShapeSpheres($centres->data(), $radii->data(), $centres->count() as int32)));
+    }
+
+    /**
+     * A triangle mesh, three indices per triangle into `$vertices`, for
+     * level geometry. Static only: a body with it must have mass zero or
+     * be kinematic. The shape copies both arrays.
+     */
+    public static function mesh(const array<Vec3>& $vertices, const array<int32>& $indices) : result<Shape, Error>
+    {
+        guard Shape::checkMesh($vertices, $indices) else ($e) {
+            return .error($e);
+        }
+
+        return .ok(Shape(cShapeMesh(
+            $vertices->data(),
+            $vertices->count() as int32,
+            $indices->data(),
+            $indices->count() as int32
+        )));
+    }
+
+    /**
+     * A triangle mesh a dynamic body can use: a bowl, a chair, anything
+     * concave that has to move. Far slower than a hull or a compound, so
+     * reach for it last.
+     */
+    public static function gimpact(const array<Vec3>& $vertices, const array<int32>& $indices) : result<Shape, Error>
+    {
+        guard Shape::checkMesh($vertices, $indices) else ($e) {
+            return .error($e);
+        }
+
+        return .ok(Shape(cShapeGimpact(
+            $vertices->data(),
+            $vertices->count() as int32,
+            $indices->data(),
+            $indices->count() as int32
+        )));
+    }
+
+    /**
+     * Terrain from a grid of `$width` x `$length` heights, row by row.
+     * The shape copies the heights.
+     *
+     * Bullet centres a heightfield on its origin halfway between the
+     * lowest and highest sample, so a body at y = 0 has its terrain
+     * straddle y = 0. Offset the body by `(min + max) / 2` to put the
+     * samples at their own heights.
+     */
+    public static function heightfield(
+        int32 $width,
+        int32 $length,
+        const array<float32>& $heights,
+        axis: Axis $axis = .y,
+        flipQuadEdges: bool $flip = false
+    ) : result<Shape, Error>
+    {
+        if ($width < 2 || $length < 2) {
+            return .error(.badDimensions($width, $length));
+        }
+
+        int32 $expected = $width * $length;
+        int32 $got = $heights->count() as int32;
+        if ($got != $expected) {
+            return .error(.sizeMismatch($expected, $got));
+        }
+
+        float32 $low = $heights[0];
+        float32 $high = $heights[0];
+        foreach ($heights as $h) {
+            $low = math::min($low, $h);
+            $high = math::max($high, $h);
+        }
+
+        return .ok(Shape(cShapeHeightfield(
+            $width,
+            $length,
+            $heights->data(),
+            $low,
+            $high,
+            $axis->value(),
+            $flip as uint32
+        )));
+    }
+
+    /**
+     * Terrain over heights that stay where they are: nothing is copied or
+     * scanned, so a large map costs no memory and no time to wrap. The
+     * shape holds `$src`. Heights written in place are seen by the next
+     * query, but the field's range is `low()` to `high()` as asked now: a
+     * height outside it needs a new shape.
+     *
+     * With `accelerate:` Bullet builds a chunked min/max tree once, so a
+     * long ray over a large field skips whole chunks. It walks every
+     * height, so build it at load.
+     *
+     * Bullet centres the field halfway between low and high, and on the
+     * grid's middle sample, as the copying `heightfield` does.
+     */
+    public static function heightfield(
+        borrowing: HeightSamples $src,
+        axis: Axis $axis = .y,
+        flipQuadEdges: bool $flip = false,
+        accelerate: bool $accelerate = false
+    ) : result<Shape, Error>
+    {
+        int32 $width = $src->width();
+        int32 $length = $src->length();
+        if ($width < 2 || $length < 2) {
+            return .error(.badDimensions($width, $length));
+        }
+
+        $shape = Shape(cShapeHeightfieldBorrowed(
+            $width,
+            $length,
+            $src->heights(),
+            $src->low(),
+            $src->high(),
+            $axis->value(),
+            $flip as uint32,
+            $accelerate as uint32
+        ));
+        $shape->borrowed = $src;
+        return .ok($shape);
+    }
+
+    public const function kind() : ShapeKind
+    {
+        ShapeKind $kind = guard ShapeKind::from(cShapeKind($this->raw)) else {
+            die('bt: the shim reported an unknown shape kind');
+        }
+
+        return $kind;
+    }
+
+    /**
+     * Convex shapes can be swept, back a character, and collide fastest.
+     * Planes, meshes, heightfields and compounds are not.
+     */
+    public const function convex() : bool
+    {
+        return cShapeConvex($this->raw) != 0;
+    }
+
+    /**
+     * Stretch the shape per axis. Bodies using it see the change on their
+     * next step. On a compound it scales the children too, and they are
+     * shared.
+     */
+    public function setScaling(Vec3 $scaling) : void
+    {
+        cShapeSetScaling($this->raw, &$scaling);
+    }
+
+    public const function scaling() : Vec3
+    {
+        $out = Vec3();
+        cShapeScaling($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * The local inertia a body of `$mass` with this shape gets. Zero for a
+     * mass of zero.
+     */
+    public const function inertia(float32 $mass) : Vec3
+    {
+        $out = Vec3();
+        cShapeInertia($this->raw, $mass, &$out);
+        return $out;
+    }
+
+    /**
+     * The skin Bullet keeps around convex shapes for stable contacts, 0.04
+     * by default. Boxes and cylinders keep theirs inside their extents.
+     */
+    public const function margin() : float32
+    {
+        return cShapeMargin($this->raw);
+    }
+
+    public function setMargin(float32 $margin) : void
+    {
+        cShapeSetMargin($this->raw, $margin);
+    }
+
+    /**
+     * The box around the shape placed `at:`, margin included.
+     */
+    public const function aabb(at: Transform $at = Transform()) : Aabb
+    {
+        $out = Aabb();
+        cShapeAabb($this->raw, &$at, &$out);
+        return $out;
+    }
+
+    /**
+     * A sphere around the shape in its own space. Loose: Bullet builds it
+     * around the bounding box, so a sphere's comes out larger than the
+     * sphere.
+     */
+    public const function bounds() : Bounds
+    {
+        $centre = Vec3();
+        $radius = cShapeBounds($this->raw, &$centre);
+        return Bounds($centre, $radius);
+    }
+
+    /**
+     * Move a compound's child. Bodies with the shape follow on their next
+     * step.
+     */
+    public function setChild(usize $index, at: Transform $at) : status<Error>
+    {
+        if ($this->kind() != ShapeKind::compound) {
+            return .error(.notCompound);
+        }
+
+        if ($index >= $this->children->count()) {
+            return .error(.badIndex($index as int32, $this->children->count() as int32));
+        }
+
+        cShapeCompoundSet($this->raw, $index as int32, &$at);
+        return .ok;
+    }
+
+    internal const function staticOnly() : bool
+    {
+        return cShapeStaticOnly($this->raw) != 0;
+    }
+
+    /**
+     * Whether `$indices` describes whole triangles over `$vertices`. Soft
+     * body meshes take the same check.
+     */
+    internal static function checkMesh(const array<Vec3>& $vertices, const array<int32>& $indices) : status<Error>
+    {
+        if ($vertices->empty() || $indices->empty()) {
+            return .error(.emptyMesh);
+        }
+
+        if ($indices->count() % 3 != 0) {
+            return .error(.badTriangles($indices->count() as int32));
+        }
+
+        int32 $count = $vertices->count() as int32;
+        foreach ($indices as $i) {
+            if ($i < 0 || $i >= $count) {
+                return .error(.badIndex($i, $count));
+            }
+        }
+
+        return .ok;
+    }
+}
+
+/**
+ * One part of a compound shape: a shape, and where it sits relative to
+ * the body.
+ */
+public struct Child
+{
+    public Shape $shape;
+    public Transform $at = Transform();
+}

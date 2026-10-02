@@ -1,0 +1,139 @@
+test advance_runs_exactly_one_step
+{
+    bt::World $world = bt::World();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 10.0f, 0.0f)));
+    assert(!$world->add($ball)->failed());
+
+    // a quarter step still moves the body, where step() would bank it
+    $world->advance(1.0f / 240.0f);
+    assert($ball->velocity()->y < 0.0f);
+    assert(near($ball->velocity()->y, -9.81f / 240.0f, 0.0001f));
+}
+
+test moving_reports_awake_dynamic_bodies_by_slot
+{
+    bt::World $world = groundWorld();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    bt::Body $wall = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)), at: bt::Transform(bt::Vec3(5.0f, 1.0f, 0.0f)));
+    bt::Body $door = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 0.1f)), at: bt::Transform(bt::Vec3(-5.0f, 1.0f, 0.0f)));
+    $door->setKinematic(true);
+    $ball->setSlot(7);
+    $wall->setSlot(8);
+    $door->setSlot(9);
+    assert($ball->slot() == 7);
+    assert(!$world->add($ball)->failed());
+    assert(!$world->add($wall)->failed());
+    assert(!$world->add($door)->failed());
+
+    array<bt::BodyPose> $poses = arr::room<bt::BodyPose>(1);
+    $world->advance(1.0f / 60.0f);
+    $world->moving($poses);
+    assert($poses->count() == 1);
+    assert($poses[0]->slot == 7);
+    assert($poses[0]->at->origin->y < 3.0f);
+
+    // once it rests and sleeps it drops out
+    for (int32 $i = 0; $i < 600; $i++) {
+        $world->advance(1.0f / 60.0f);
+    }
+    assert(!$ball->awake());
+    $world->moving($poses);
+    assert($poses->count() == 0);
+}
+
+test moving_grows_a_short_buffer
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $held = array<bt::Body>();
+    for (int32 $i = 0; $i < 5; $i++) {
+        bt::Body $b = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(($i * 2) as float32, 5.0f, 0.0f)));
+        $b->setSlot($i);
+        assert(!$world->add($b)->failed());
+        $held[] = $b;
+    }
+
+    array<bt::BodyPose> $poses = array<bt::BodyPose>();
+    $world->advance(1.0f / 60.0f);
+    $world->moving($poses);
+    assert($poses->count() == 5);
+}
+
+test reserve_keeps_the_tables_from_growing
+{
+    bt::World $world = bt::World();
+    $world->reserve(bodies: 64);
+    bt::Body $b = bt::Body(bt::Shape(sphere: 0.5f));
+    assert(!$world->add($b)->failed());
+    assert($world->count() == 1);
+}
+
+test facing_sweep_backs_out_of_a_body
+{
+    bt::World $world = bt::World();
+    bt::Body $wall = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)));
+    assert(!$world->add($wall)->failed());
+
+    bt::Shape $probe = bt::Shape(sphere: 0.25f);
+    // starts inside the box, just under its +X face, and moves out along +X
+    bt::Transform $from = bt::Transform(bt::Vec3(0.9f, 0.0f, 0.0f));
+    bt::Transform $out = bt::Transform(bt::Vec3(2.0f, 0.0f, 0.0f));
+    bt::SweepHit? $free = guard $world->sweep($probe, from: $from, to: $out, facing: true) else ($e) {
+        die("{$e}");
+    }
+    assert($free == null);
+
+    // moving into a face still hits it
+    bt::Transform $outside = bt::Transform(bt::Vec3(3.0f, 0.0f, 0.0f));
+    bt::Transform $in = bt::Transform(bt::Vec3(0.0f, 0.0f, 0.0f));
+    bt::SweepHit? $into = guard $world->sweep($probe, from: $outside, to: $in, facing: true) else ($e) {
+        die("{$e}");
+    }
+    bt::SweepHit $hit = guard $into else {
+        die('expected to hit the wall');
+    }
+    assert($hit->normal->x > 0.9f);
+}
+
+test fill_into_queries_reuse_buffers
+{
+    bt::World $world = groundWorld();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.6f, 0.0f)));
+    assert(!$world->add($ball)->failed());
+    $world->trackContacts();
+
+    array<bt::ContactEvent> $events = arr::room<bt::ContactEvent>(4);
+    for (int32 $i = 0; $i < 30; $i++) {
+        $world->advance(1.0f / 60.0f);
+    }
+    $world->events(into: $events);
+    assert($events->count() >= 1);
+    $world->events(into: $events);
+    assert($events->count() == 0);
+
+    array<bt::Body> $touching = arr::room<bt::Body>(4);
+    $world->overlap(bt::Shape(sphere: 2.0f), at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)), into: $touching);
+    assert($touching->count() >= 1);
+
+    array<bt::RayHit> $hits = arr::room<bt::RayHit>(4);
+    $world->rays(bt::Vec3(0.0f, 10.0f, 0.0f), bt::Vec3(0.0f, -10.0f, 0.0f), into: $hits);
+    array<bt::RayHit> $fresh = $world->rays(bt::Vec3(0.0f, 10.0f, 0.0f), bt::Vec3(0.0f, -10.0f, 0.0f));
+    assert($hits->count() >= 1);
+    assert($hits->count() == $fresh->count());
+    assert($hits[0]->body->id() == $ball->id());
+}
+
+test refresh_moves_a_static_box_without_updating_all
+{
+    bt::World $world = bt::World();
+    $world->setUpdateAllAabbs(false);
+    bt::Body $wall = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)));
+    assert(!$world->add($wall)->failed());
+    $world->advance(1.0f / 60.0f);
+
+    $wall->setTransform(bt::Transform(bt::Vec3(10.0f, 0.0f, 0.0f)));
+    $world->refresh($wall);
+    bt::RayHit $hit = guard $world->ray(bt::Vec3(10.0f, 5.0f, 0.0f), bt::Vec3(10.0f, -5.0f, 0.0f)) else {
+        die('expected the moved wall');
+    }
+    assert(near($hit->point->y, 1.0f, 0.01f));
+}

@@ -1,0 +1,48 @@
+/**
+ * A capsule character walks up a flight of steps, jumps, and lands.
+ */
+
+$world = bt::World();
+guard $world->add(bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)))) else ($e) {
+    die("floor: {$e}");
+}
+
+// five steps, 0.2 high and 0.6 deep, climbing along +X from x = 2
+$tread = bt::Shape(box: bt::Vec3(0.3f, 0.1f, 2.0f));
+for (int32 $i = 0; $i < 5; $i++) {
+    float32 $x = 2.3f + ($i as float32) * 0.6f;
+    float32 $h = ($i as float32) * 0.2f;
+    for (int32 $layer = 0; $layer <= $i; $layer++) {
+        float32 $y = 0.1f + ($layer as float32) * 0.2f;
+        guard $world->add(bt::Body($tread, at: bt::Transform(bt::Vec3($x, $y, 0.0f)))) else ($e) {
+            die("step: {$e}");
+        }
+    }
+}
+
+$player = guard bt::Character::create(
+    bt::Shape(capsule: 0.3f, height: 1.2f),
+    at: bt::Transform(bt::Vec3(0.0f, 1.0f, 0.0f)),
+    stepHeight: 0.3f
+) else ($e) {
+    die("character: {$e}");
+}
+
+guard $world->add($player) else ($e) {
+    die("add: {$e}");
+}
+
+$player->walk(bt::Vec3(0.04f, 0.0f, 0.0f));
+
+for (int32 $frame = 0; $frame <= 240; $frame++) {
+    if ($frame == 180) {
+        $player->jump();
+    }
+
+    if ($frame % 20 == 0) {
+        bt::Vec3 $p = $player->position();
+        echo "t={$frame}  at=({$p->x:.2f}, {$p->y:.2f})  grounded={$player->grounded()}";
+    }
+
+    $world->step(1.0f / 60.0f);
+}

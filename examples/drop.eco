@@ -1,0 +1,48 @@
+/**
+ * A stack of five boxes knocked over by a ball, printed as it settles.
+ */
+
+$world = bt::World();
+
+$ground = bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)));
+guard $world->add($ground) else ($e) {
+    die("ground: {$e}");
+}
+
+// one shape backs every crate
+$crate = bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f));
+array<bt::Body> $stack = array<bt::Body>();
+
+for (int32 $i = 0; $i < 5; $i++) {
+    float32 $y = 0.5f + ($i as float32) * 1.0f;
+    $box = bt::Body($crate, 1.0f, at: bt::Transform(bt::Vec3(0.0f, $y, 0.0f)));
+    guard $world->add($box) else ($e) {
+        die("crate: {$e}");
+    }
+    $stack[] = $box;
+}
+
+$ball = bt::Body(bt::Shape(sphere: 0.4f), 5.0f, at: bt::Transform(bt::Vec3(-6.0f, 3.5f, 0.0f)));
+guard $world->add($ball) else ($e) {
+    die("ball: {$e}");
+}
+$ball->setVelocity(bt::Vec3(12.0f, 0.0f, 0.0f));
+
+for (int32 $frame = 0; $frame <= 180; $frame++) {
+    if ($frame % 30 == 0) {
+        float32 $t = ($frame as float32) / 60.0f;
+        $line = "t={$t:.1f}s";
+        foreach ($stack as $box) {
+            bt::Vec3 $p = $box->position();
+            $line->append(" ({$p->x:.1f}, {$p->y:.1f})");
+        }
+        echo $line;
+    }
+
+    $world->step(1.0f / 60.0f);
+}
+
+bt::RayHit $hit = guard $world->ray(bt::Vec3(0.0f, 20.0f, 0.0f), bt::Vec3(0.0f, -1.0f, 0.0f)) else {
+    die('nothing below');
+}
+echo "straight down from y=20 the first thing is at y={$hit->point->y:.2f}";

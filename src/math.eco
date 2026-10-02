@@ -1,0 +1,237 @@
+/**
+ * The value types that cross into Bullet. Their layouts match the PODs in
+ * c/bt.h exactly, because they cross as pointers. No dependency on any
+ * math library: convert at your renderer's edge.
+ */
+
+namespace bt;
+
+use std::math;
+
+/**
+ * A point, direction or extent. Bullet's convention is +Y up, and
+ * nothing in this library assumes otherwise.
+ */
+public struct Vec3
+{
+    public float32 $x = 0.0f;
+    public float32 $y = 0.0f;
+    public float32 $z = 0.0f;
+
+    public const function dot(Vec3 $other) : float32
+    {
+        return $this->x * $other->x + $this->y * $other->y + $this->z * $other->z;
+    }
+
+    public const function cross(Vec3 $other) : Vec3
+    {
+        return Vec3(
+            $this->y * $other->z - $this->z * $other->y,
+            $this->z * $other->x - $this->x * $other->z,
+            $this->x * $other->y - $this->y * $other->x
+        );
+    }
+
+    public const function length() : float32
+    {
+        return math::sqrt($this->dot($this));
+    }
+
+    /**
+     * The same direction with length one. The zero vector stays zero.
+     */
+    public const function normalized() : Vec3
+    {
+        $len = $this->length();
+
+        if ($len == 0.0f) {
+            return $this;
+        }
+
+        return Vec3($this->x / $len, $this->y / $len, $this->z / $len);
+    }
+}
+
+operator (bt::Vec3 $a) + (bt::Vec3 $b) : bt::Vec3
+{
+    return bt::Vec3($a->x + $b->x, $a->y + $b->y, $a->z + $b->z);
+}
+
+operator (bt::Vec3 $a) - (bt::Vec3 $b) : bt::Vec3
+{
+    return bt::Vec3($a->x - $b->x, $a->y - $b->y, $a->z - $b->z);
+}
+
+operator (bt::Vec3 $a) * (float32 $s) : bt::Vec3
+{
+    return bt::Vec3($a->x * $s, $a->y * $s, $a->z * $s);
+}
+
+/**
+ * A rotation as a unit quaternion, w last like Bullet. The default is
+ * the identity.
+ */
+public struct Quat
+{
+    public float32 $x;
+    public float32 $y;
+    public float32 $z;
+    public float32 $w;
+
+    public constructor(float32 $x = 0.0f, float32 $y = 0.0f, float32 $z = 0.0f, float32 $w = 1.0f)
+    {
+        $this->x = $x;
+        $this->y = $y;
+        $this->z = $z;
+        $this->w = $w;
+    }
+
+    /**
+     * A rotation of `$angle` radians around `$axis`. The axis need not be
+     * normalized; a zero axis gives the identity.
+     */
+    public constructor(axis: Vec3 $axis, float32 $angle)
+    {
+        $n = $axis->normalized();
+        $s = math::sin($angle * 0.5f);
+
+        $this->x = $n->x * $s;
+        $this->y = $n->y * $s;
+        $this->z = $n->z * $s;
+        $this->w = math::cos($angle * 0.5f);
+
+        if ($n->length() == 0.0f) {
+            $this->w = 1.0f;
+        }
+    }
+
+    /**
+     * The opposite rotation. For a unit quaternion that is the conjugate.
+     */
+    public const function inverse() : Quat
+    {
+        return Quat(-$this->x, -$this->y, -$this->z, $this->w);
+    }
+
+    /**
+     * `$v` turned by this rotation.
+     */
+    public const function rotate(Vec3 $v) : Vec3
+    {
+        $u = Vec3($this->x, $this->y, $this->z);
+        $t = $u->cross($v) * 2.0f;
+        return $v + $t * $this->w + $u->cross($t);
+    }
+}
+
+/**
+ * Rotation `$b` first, then `$a`.
+ */
+operator (bt::Quat $a) * (bt::Quat $b) : bt::Quat
+{
+    return bt::Quat(
+        $a->w * $b->x + $a->x * $b->w + $a->y * $b->z - $a->z * $b->y,
+        $a->w * $b->y - $a->x * $b->z + $a->y * $b->w + $a->z * $b->x,
+        $a->w * $b->z + $a->x * $b->y - $a->y * $b->x + $a->z * $b->w,
+        $a->w * $b->w - $a->x * $b->x - $a->y * $b->y - $a->z * $b->z
+    );
+}
+
+/**
+ * Where something is and which way it faces. No scale: Bullet keeps
+ * scale on the shape.
+ */
+public struct Transform
+{
+    public Vec3 $origin = Vec3();
+    public Quat $rotation = Quat();
+
+    /**
+     * A point in this transform's local space, moved into the space the
+     * transform lives in.
+     */
+    public const function apply(Vec3 $local) : Vec3
+    {
+        return $this->rotation->rotate($local) + $this->origin;
+    }
+
+    /**
+     * The transform that undoes this one.
+     */
+    public const function inverse() : Transform
+    {
+        $back = $this->rotation->inverse();
+        return Transform($back->rotate($this->origin * -1.0f), $back);
+    }
+
+    /**
+     * The same transform as a 4x4 matrix, column-major, ready for a GL or
+     * Metal uniform.
+     */
+    public const function matrix() : fixed_array<float32, 16>
+    {
+        $q = $this->rotation;
+        $xx = $q->x * $q->x;
+        $yy = $q->y * $q->y;
+        $zz = $q->z * $q->z;
+        $xy = $q->x * $q->y;
+        $xz = $q->x * $q->z;
+        $yz = $q->y * $q->z;
+        $wx = $q->w * $q->x;
+        $wy = $q->w * $q->y;
+        $wz = $q->w * $q->z;
+
+        fixed_array<float32, 16> $m = [
+            1.0f - 2.0f * ($yy + $zz), 2.0f * ($xy + $wz), 2.0f * ($xz - $wy), 0.0f,
+            2.0f * ($xy - $wz), 1.0f - 2.0f * ($xx + $zz), 2.0f * ($yz + $wx), 0.0f,
+            2.0f * ($xz + $wy), 2.0f * ($yz - $wx), 1.0f - 2.0f * ($xx + $yy), 0.0f,
+            $this->origin->x, $this->origin->y, $this->origin->z, 1.0f
+        ];
+
+        return $m;
+    }
+}
+
+/**
+ * `$b` first, then `$a`: a frame given in `$a`'s space, taken out to the
+ * space `$a` lives in.
+ */
+operator (bt::Transform $a) * (bt::Transform $b) : bt::Transform
+{
+    return bt::Transform($a->apply($b->origin), $a->rotation * $b->rotation);
+}
+
+/**
+ * An axis-aligned box by its low and high corner, in world space.
+ */
+public struct Aabb
+{
+    public Vec3 $min = Vec3();
+    public Vec3 $max = Vec3();
+
+    public const function centre() : Vec3
+    {
+        return ($this->min + $this->max) * 0.5f;
+    }
+
+    public const function size() : Vec3
+    {
+        return $this->max - $this->min;
+    }
+
+    public const function contains(Vec3 $p) : bool
+    {
+        return $p->x >= $this->min->x && $p->x <= $this->max->x
+            && $p->y >= $this->min->y && $p->y <= $this->max->y
+            && $p->z >= $this->min->z && $p->z <= $this->max->z;
+    }
+}
+
+/**
+ * A sphere that encloses a shape, in the shape's local space.
+ */
+public struct Bounds
+{
+    public Vec3 $centre = Vec3();
+    public float32 $radius = 0.0f;
+}

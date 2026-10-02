@@ -1,0 +1,297 @@
+use std::math;
+
+test transform_roundtrip
+{
+    bt::Body $body = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 2.0f);
+    bt::Quat $turn = bt::Quat(axis: bt::Vec3(0.0f, 1.0f, 0.0f), math::HALF_PI_F32);
+    $body->setTransform(bt::Transform(bt::Vec3(1.0f, 2.0f, 3.0f), $turn));
+
+    bt::Transform $t = $body->transform();
+    assert($t->origin->x == 1.0f && $t->origin->y == 2.0f && $t->origin->z == 3.0f);
+    assert(near($t->rotation->y, $turn->y) && near($t->rotation->w, $turn->w));
+
+    $body->setPosition(bt::Vec3(4.0f, 5.0f, 6.0f));
+    assert($body->position()->x == 4.0f);
+    assert(near($body->rotation()->y, $turn->y));
+
+    $body->setRotation(bt::Quat());
+    assert(near($body->rotation()->w, 1.0f));
+    assert($body->matrix()[12] == 4.0f);
+}
+
+test mass_and_material
+{
+    bt::Body $body = bt::Body(bt::Shape(sphere: 1.0f), 3.0f);
+    assert(near($body->mass(), 3.0f));
+    $body->setMass(0.0f);
+    assert($body->mass() == 0.0f);
+
+    $body->setFriction(0.25f);
+    $body->setRollingFriction(0.1f);
+    $body->setSpinningFriction(0.2f);
+    $body->setRestitution(0.75f);
+    assert($body->friction() == 0.25f);
+    assert($body->rollingFriction() == 0.1f);
+    assert($body->spinningFriction() == 0.2f);
+    assert($body->restitution() == 0.75f);
+    $body->setDamping(0.1f, angular: 0.2f);
+    $body->setContactStiffness(1000.0f, damping: 10.0f);
+}
+
+test velocity_roundtrip
+{
+    bt::Body $body = bt::Body(bt::Shape(sphere: 1.0f), 1.0f);
+    $body->setVelocity(bt::Vec3(1.0f, 2.0f, 3.0f));
+    $body->setAngularVelocity(bt::Vec3(0.0f, 4.0f, 0.0f));
+    assert($body->velocity()->z == 3.0f);
+    assert($body->angularVelocity()->y == 4.0f);
+}
+
+test impulse_moves_body
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $body = bt::Body(bt::Shape(sphere: 0.5f), 2.0f);
+    guard $world->add($body) else ($e) {
+        die("{$e}");
+    }
+
+    $body->applyImpulse(bt::Vec3(4.0f, 0.0f, 0.0f));
+    assert(near($body->velocity()->x, 2.0f));
+
+    $body->applyImpulse(bt::Vec3(0.0f, 0.0f, 2.0f), at: bt::Vec3(0.5f, 0.0f, 0.0f));
+    assert($body->angularVelocity()->length() > 0.0f);
+
+    run($world, 60);
+    assert(near($body->position()->x, 2.0f, 0.05f));
+}
+
+test force_accelerates_body
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $body = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    guard $world->add($body) else ($e) {
+        die("{$e}");
+    }
+
+    for (int32 $i = 0; $i < 60; $i++) {
+        $body->applyForce(bt::Vec3(0.0f, 1.0f, 0.0f));
+        $world->step(1.0f / 60.0f);
+    }
+
+    assert(near($body->velocity()->y, 1.0f, 0.05f));
+
+    $body->applyTorque(bt::Vec3(0.0f, 1.0f, 0.0f));
+    $body->applyTorqueImpulse(bt::Vec3(0.0f, 1.0f, 0.0f));
+    $body->applyForce(bt::Vec3(1.0f, 0.0f, 0.0f), at: bt::Vec3(0.0f, 0.5f, 0.0f));
+    assert($body->angularVelocity()->y > 0.0f);
+}
+
+test resting_body_falls_asleep
+{
+    bt::World $world = groundWorld();
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)));
+    guard $world->add($box) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 300);
+    assert(!$box->awake());
+    $box->activate();
+    assert($box->awake());
+
+    $box->setAlwaysAwake(true);
+    run($world, 300);
+    assert($box->awake());
+}
+
+test kinds
+{
+    bt::Shape $s = bt::Shape(sphere: 0.5f);
+    bt::Body $moving = bt::Body($s, 1.0f);
+    bt::Body $still = bt::Body($s);
+    assert($moving->kind() == bt::BodyKind::dynamic);
+    assert($still->kind() == bt::BodyKind::fixed);
+
+    $moving->setKinematic(true);
+    assert($moving->kind() == bt::BodyKind::kinematic);
+    assert($moving->mass() == 0.0f);
+    $moving->setKinematic(false);
+    assert($moving->kind() == bt::BodyKind::fixed);
+    $moving->setMass(2.0f);
+    assert($moving->kind() == bt::BodyKind::dynamic);
+}
+
+test kinematic_body_pushes_a_dynamic_one
+{
+    bt::World $world = groundWorld();
+    bt::Body $pusher = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), at: bt::Transform(bt::Vec3(-2.0f, 0.5f, 0.0f)));
+    $pusher->setKinematic(true);
+    bt::Body $crate = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)));
+    assert(!$world->add($pusher)->failed());
+    assert(!$world->add($crate)->failed());
+
+    for (int32 $i = 1; $i <= 120; $i++) {
+        float32 $x = -2.0f + ($i as float32) * 0.025f;
+        $pusher->moveTo(bt::Transform(bt::Vec3($x, 0.5f, 0.0f)));
+        $world->step(1.0f / 60.0f);
+    }
+
+    // the pusher ends at x = 1, its face at 1.5; the crate is shoved ahead of it
+    assert(near($pusher->position()->x, 1.0f, 0.05f));
+    assert($crate->position()->x > 1.8f);
+}
+
+test a_still_kinematic_body_lets_what_rests_on_it_sleep
+{
+    bt::World $world = groundWorld();
+    bt::Body $table = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 0.5f, 1.0f)), at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)));
+    $table->setKinematic(true);
+    bt::Body $crate = bt::Body(bt::Shape(box: bt::Vec3(0.25f, 0.25f, 0.25f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 1.25f, 0.0f)));
+    assert(!$world->add($table)->failed());
+    assert(!$world->add($crate)->failed());
+
+    // nothing drives the table, so it sleeps and stops waking the crate
+    for (int32 $i = 0; $i < 600; $i++) {
+        $world->advance(1.0f / 60.0f);
+    }
+    assert(!$table->awake());
+    assert(!$crate->awake());
+
+    // one move wakes the table, and the table wakes the crate on it
+    $table->moveTo(bt::Transform(bt::Vec3(0.01f, 0.5f, 0.0f)));
+    $world->advance(1.0f / 60.0f);
+    assert($table->awake());
+    assert($crate->awake());
+}
+
+test sleep_seconds_is_one_setting_for_the_process
+{
+    float32 $was = bt::sleepSeconds();
+    assert(near($was, 2.0f));
+    bt::setSleepSeconds(0.5f);
+    assert(near(bt::sleepSeconds(), 0.5f));
+    bt::setSleepSeconds($was);
+}
+
+test sensor_lets_things_through
+{
+    bt::World $world = groundWorld();
+    bt::Body $zone = bt::Body(bt::Shape(box: bt::Vec3(2.0f, 0.5f, 2.0f)), at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+    $zone->setSensor(true);
+    assert($zone->sensor());
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.25f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 5.0f, 0.0f)));
+    assert(!$world->add($zone)->failed());
+    assert(!$world->add($ball)->failed());
+
+    run($world, 180);
+    assert(near($ball->position()->y, 0.25f, 0.05f));
+}
+
+test axis_locks_keep_a_body_in_plane
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $puck = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    $puck->setLinearFactor(bt::Vec3(1.0f, 1.0f, 0.0f));
+    $puck->setAngularFactor(bt::Vec3(0.0f, 0.0f, 1.0f));
+    assert($puck->linearFactor()->z == 0.0f);
+    assert($puck->angularFactor()->x == 0.0f);
+    assert(!$world->add($puck)->failed());
+
+    $puck->applyImpulse(bt::Vec3(1.0f, 1.0f, 5.0f), at: bt::Vec3(0.0f, 0.5f, 0.0f));
+    run($world, 60);
+    assert($puck->position()->z == 0.0f);
+    assert($puck->position()->x > 0.5f);
+    assert($puck->angularVelocity()->x == 0.0f);
+}
+
+test own_gravity_survives_the_world
+{
+    bt::World $world = bt::World();
+    bt::Body $balloon = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    $balloon->setGravity(bt::Vec3(0.0f, 2.0f, 0.0f));
+    assert(!$world->add($balloon)->failed());
+    $world->setGravity(bt::Vec3(0.0f, -20.0f, 0.0f));
+    assert($balloon->gravity()->y == 2.0f);
+
+    run($world, 60);
+    assert($balloon->position()->y > 0.5f);
+}
+
+test readbacks
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $body = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)), 2.0f, at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    assert(!$world->add($body)->failed());
+
+    assert(near($body->inverseMass(), 0.5f));
+    assert($body->localInertia()->x > 0.0f);
+    $body->setDamping(0.1f, angular: 0.3f);
+    assert(near($body->linearDamping(), 0.1f));
+    assert(near($body->angularDamping(), 0.3f));
+
+    $body->applyForce(bt::Vec3(3.0f, 0.0f, 0.0f));
+    assert($body->totalForce()->x == 3.0f);
+    $body->applyTorque(bt::Vec3(0.0f, 1.0f, 0.0f));
+    assert($body->totalTorque()->y == 1.0f);
+    $body->clearForces();
+    assert($body->totalForce()->x == 0.0f);
+
+    $body->setAngularVelocity(bt::Vec3(0.0f, 1.0f, 0.0f));
+    bt::Vec3 $rim = $body->velocity(at: bt::Vec3(1.0f, 0.0f, 0.0f));
+    assert(near($rim->z, -1.0f));
+
+    bt::Aabb $box = $body->aabb();
+    assert(near($box->min->y, 2.0f) && near($box->max->y, 4.0f));
+    assert($box->contains(bt::Vec3(0.0f, 3.0f, 0.0f)));
+
+    $body->setAnisotropicFriction(bt::Vec3(1.0f, 0.5f, 1.0f));
+    $body->setCcd(0.1f, radius: 0.2f);
+    $body->setSleepThresholds(0.5f, angular: 0.5f);
+}
+
+test sleep_puts_a_body_down
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $body = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    assert(!$world->add($body)->failed());
+    $body->sleep();
+    assert(!$body->awake());
+    $body->activate();
+    assert($body->awake());
+}
+
+test inverse_inertia_is_the_reciprocal
+{
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 1.0f, 2.0f)), 6.0f);
+    bt::Vec3 $i = $box->localInertia();
+    bt::Vec3 $inv = $box->inverseInertia();
+    assert(near($inv->x * $i->x, 1.0f, 0.001f));
+    assert(near($inv->y * $i->y, 1.0f, 0.001f));
+    assert(near($inv->z * $i->z, 1.0f, 0.001f));
+
+    bt::Body $wall = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)));
+    assert($wall->inverseInertia()->x == 0.0f);
+}
+
+test quiet_pushes_keep_the_sleep_state
+{
+    bt::World $world = groundWorld();
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)));
+    guard $world->add($box) else ($e) {
+        die("{$e}");
+    }
+
+    // a tiny push every step does not hold the timer back
+    for (int32 $i = 0; $i < 300; $i++) {
+        $box->push(bt::Vec3(0.0f, 0.0001f, 0.0f), at: bt::Vec3(0.1f, 0.0f, 0.0f));
+        $box->pushTorque(bt::Vec3(0.0f, 0.00001f, 0.0f));
+        $world->step(1.0f / 60.0f);
+    }
+    assert(!$box->awake());
+
+    $box->push(bt::Vec3(0.0f, 5.0f, 0.0f));
+    assert(!$box->awake());
+
+    $box->applyImpulse(bt::Vec3(0.0f, 0.1f, 0.0f));
+    assert($box->awake());
+}

@@ -1,0 +1,21 @@
+test raw_structs_match_the_c_abi
+{
+    assert(mem::size<bt::Aabb>() == 24);
+    assert(mem::size<bt::RawHit>() == 40);
+    assert(mem::size<bt::RawContact>() == 64);
+    assert(mem::size<bt::RawEvent>() == 24);
+    assert(mem::size<bt::RawSolver>() == 40);
+    assert(mem::size<bt::JointFeedback>() == 48);
+    assert(mem::size<bt::RawWheel>() == 76);
+    assert(mem::size<bt::RawWheelState>() == 80);
+    assert(mem::size<bt::SoftConfig>() == 60);
+}
+
+test ids_are_unique
+{
+    bt::Shape $s = bt::Shape(sphere: 1.0f);
+    bt::Body $a = bt::Body($s, 1.0f);
+    bt::Body $b = bt::Body($s, 1.0f);
+    assert($a->id() != 0);
+    assert($a->id() != $b->id());
+}

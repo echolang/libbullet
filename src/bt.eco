@@ -1,0 +1,80 @@
+/**
+ * libbullet. Bullet Physics 3.25 bindings. The C++ library is vendored;
+ * Echo talks to a small extern "C" ABI of heap pointers, never to
+ * Bullet's own classes.
+ *
+ * Ownership follows what the simulation needs: a World holds everything
+ * added to it, a Body holds its Shape, a compound Shape holds its
+ * children, a Joint holds its bodies, a Vehicle its chassis, a SoftBody
+ * the bodies it is anchored to. Nothing Bullet still points at can be
+ * freed.
+ */
+
+namespace bt;
+
+/**
+ * Bullet's version as it reports it, 325 for 3.25.
+ */
+public function version() : int32
+{
+    return cVersion();
+}
+
+/**
+ * Seconds a body must stay under its sleep thresholds (`Body.setSleepThresholds`) before it
+ * sleeps. Bullet keeps it in one global, so it holds for every world in the process. Bullet's
+ * default is 2.
+ */
+public function setSleepSeconds(float32 $seconds) : void
+{
+    cSetSleepSeconds($seconds);
+}
+
+public function sleepSeconds() : float32
+{
+    return cSleepSeconds();
+}
+
+/**
+ * Threads a parallel `World` can step on, this one included; 1 when Bullet was built without
+ * threads or the machine has a single core. The first call starts the process task scheduler.
+ */
+public function maxThreads() : int32
+{
+    return cMaxThreads();
+}
+
+/**
+ * Stop the task scheduler's worker threads. Call it once no parallel world steps any more and
+ * before the process unloads this code: an idle worker is still a thread running inside it. A
+ * parallel world stepped after this runs on one thread.
+ */
+public function shutdown() : void
+{
+    cShutdown();
+}
+
+internal function live<T>(ptr<T> $p, string $what) : ptr<T>
+{
+    if ($p == null) {
+        die("bt: {$what}");
+    }
+
+    return $p;
+}
+
+/**
+ * An empty array with room for exactly `$n`, for a C call to fill through
+ * `spare()` before `commit($n)`.
+ */
+internal function room<T>(usize $n) : array<T>
+{
+    $out = arr::room<T>($n);
+    $p = $out->spare();
+
+    if ($n > 0 && $p:$ == null) {
+        die('bt: out of memory');
+    }
+
+    return $out;
+}

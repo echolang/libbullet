@@ -1,0 +1,110 @@
+/**
+ * A rail: the bodies slide along, and turn about, the frames' X axis.
+ */
+
+namespace bt;
+
+public class Slider : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Frames are in each body's local space. `linearFrameA:` picks whose
+     * frame the limits are measured in.
+     */
+    public constructor(
+        Body $a,
+        Body $b,
+        frameA: Transform $frameA,
+        frameB: Transform $frameB,
+        linearFrameA: bool $linearFrameA = true
+    )
+    {
+        $this->joint = Joint(
+            cSliderCreate($a->raw, $b->raw, &$frameA, &$frameB, $linearFrameA as uint32),
+            $a,
+            $b,
+            'slider'
+        );
+    }
+
+    /**
+     * `$a` on a rail fixed in the world along the X axis of `frame:`, in
+     * its local space, where it is right now. Positions and motors are the
+     * body's own: forward is +X of the frame. The world is the A side, so
+     * `setFrames` takes the world frame first.
+     */
+    public constructor(Body $a, frame: Transform $frame)
+    {
+        $this->joint = Joint(cSliderCreate($a->raw, null, &$frame, &$frame, 1), $a, null, 'slider');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    /**
+     * How far along the rail the bodies may travel. Low above high frees
+     * the axis.
+     */
+    public function setLinearLimit(float32 $low, float32 $high) : void
+    {
+        cSliderSetLinearLimit($this->joint->raw, $low, $high);
+    }
+
+    /**
+     * How far, in radians, they may turn about the rail.
+     */
+    public function setAngularLimit(float32 $low, float32 $high) : void
+    {
+        cSliderSetAngularLimit($this->joint->raw, $low, $high);
+    }
+
+    /**
+     * The current offset along the rail.
+     */
+    public const function position() : float32
+    {
+        return cSliderPosition($this->joint->raw);
+    }
+
+    /**
+     * The current turn about the rail, in radians.
+     */
+    public const function angle() : float32
+    {
+        return cSliderAngle($this->joint->raw);
+    }
+
+    /**
+     * Drive along the rail at `$velocity` with at most `maxForce:`.
+     */
+    public function setLinearMotor(float32 $velocity, maxForce: float32 $maxForce) : void
+    {
+        cSliderSetLinearMotor($this->joint->raw, 1, $velocity, $maxForce);
+    }
+
+    public function disableLinearMotor() : void
+    {
+        cSliderSetLinearMotor($this->joint->raw, 0, 0.0f, 0.0f);
+    }
+
+    /**
+     * Spin about the rail at `$velocity` radians per second.
+     */
+    public function setAngularMotor(float32 $velocity, maxForce: float32 $maxForce) : void
+    {
+        cSliderSetAngularMotor($this->joint->raw, 1, $velocity, $maxForce);
+    }
+
+    public function disableAngularMotor() : void
+    {
+        cSliderSetAngularMotor($this->joint->raw, 0, 0.0f, 0.0f);
+    }
+
+    public function setFrames(Transform $frameA, Transform $frameB) : void
+    {
+        cSliderSetFrames($this->joint->raw, &$frameA, &$frameB);
+    }
+}

@@ -1,0 +1,64 @@
+/**
+ * A raycast car: accelerates, turns left, then brakes to a stop.
+ */
+
+$world = bt::World();
+guard $world->add(bt::Body(bt::Shape(box: bt::Vec3(200.0f, 0.5f, 200.0f)), at: bt::Transform(bt::Vec3(0.0f, -0.5f, 0.0f)))) else ($e) {
+    die("floor: {$e}");
+}
+
+$chassis = bt::Body(bt::Shape(box: bt::Vec3(0.9f, 0.3f, 2.0f)), 800.0f, at: bt::Transform(bt::Vec3(0.0f, 1.0f, 0.0f)));
+guard $world->add($chassis) else ($e) {
+    die("chassis: {$e}");
+}
+
+$car = bt::Vehicle($chassis);
+array<bt::Vec3> $corners = [
+    bt::Vec3(-0.9f, 0.0f, 1.4f),
+    bt::Vec3(0.9f, 0.0f, 1.4f),
+    bt::Vec3(-0.9f, 0.0f, -1.4f),
+    bt::Vec3(0.9f, 0.0f, -1.4f)
+];
+
+foreach ($corners as $i => $at) {
+    $car->add(bt::Wheel($at, $radius: 0.4f, $restLength: 0.5f, $front: $i < 2, $stiffness: 20.0f, $frictionSlip: 1000.0f));
+}
+
+guard $world->add($car) else ($e) {
+    die("car: {$e}");
+}
+
+for (int32 $frame = 0; $frame <= 360; $frame++) {
+    float32 $engine = 0.0f;
+    float32 $steer = 0.0f;
+    float32 $brake = 0.0f;
+
+    if ($frame < 180) {
+        $engine = 2000.0f;
+    }
+
+    if ($frame >= 120 && $frame < 240) {
+        $steer = 0.35f;
+    }
+
+    if ($frame >= 240) {
+        $brake = 80.0f;
+    }
+
+    for (usize $w = 0; $w < 4; $w++) {
+        if ($w < 2) {
+            $car->setSteering($w, $steer);
+        } else {
+            $car->setEngine($w, $engine);
+        }
+        $car->setBrake($w, $brake);
+    }
+
+    if ($frame % 30 == 0) {
+        bt::Vec3 $p = $chassis->position();
+        bt::WheelState $front = $car->wheel(0);
+        echo "t={$frame}  at=({$p->x:.1f}, {$p->z:.1f})  speed={$car->speed():.1f} km/h  front on ground={$front->contact}";
+    }
+
+    $world->step(1.0f / 60.0f);
+}

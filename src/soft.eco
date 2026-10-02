@@ -1,0 +1,415 @@
+/**
+ * Soft bodies: ropes, cloth and squishy volumes, as nodes joined by
+ * springy links. Bullet simulates every node, so `nodes()` is where the
+ * body is, and `triangles()` or `links()` says how to draw it.
+ */
+
+namespace bt;
+
+public class SoftBody
+{
+    internal const ptr<eco_bt_soft> $raw;
+    private array<Body> $anchors = array<Body>();
+
+    private constructor(ptr<eco_bt_soft> $raw)
+    {
+        $this->raw = live($raw, 'out of memory creating a soft body');
+    }
+
+    /**
+     * A rope from `$from` to `to:` in `segments:` links, so one more node
+     * than that. Node 0 sits at `$from`.
+     */
+    public static function rope(Vec3 $from, to: Vec3 $to, segments: int32 $segments) : result<SoftBody, Error>
+    {
+        if ($segments < 1) {
+            return .error(.badSegments($segments));
+        }
+
+        return .ok(SoftBody(cSoftRope(&$from, &$to, $segments)));
+    }
+
+    /**
+     * A sheet of cloth between four corners, `resolution:` nodes across
+     * and `$rows` nodes down. Node 0 is at `$c00`, rows run towards
+     * `$c10`, and the corner nodes are 0, `$across - 1`,
+     * `($rows - 1) * $across` and the last one. `diagonals:` adds shear
+     * links, which keeps the cloth from folding like a net.
+     */
+    public static function cloth(
+        Vec3 $c00,
+        Vec3 $c10,
+        Vec3 $c01,
+        Vec3 $c11,
+        resolution: int32 $across,
+        int32 $rows,
+        diagonals: bool $diagonals = true
+    ) : result<SoftBody, Error>
+    {
+        if ($across < 2 || $rows < 2) {
+            return .error(.badDimensions($across, $rows));
+        }
+
+        return .ok(SoftBody(cSoftCloth(&$c00, &$c10, &$c01, &$c11, $across, $rows, $diagonals as uint32)));
+    }
+
+    /**
+     * A closed, balloon-like volume of about `resolution:` nodes. Give it
+     * pressure in its config to keep it inflated.
+     */
+    public constructor(ellipsoid: Vec3 $centre, radius: Vec3 $radius, resolution: int32 $resolution = 128)
+    {
+        $this->raw = live(cSoftEllipsoid(&$centre, &$radius, $resolution), 'out of memory creating an ellipsoid');
+    }
+
+    /**
+     * A soft body from a triangle mesh: a node per used vertex, a link per
+     * edge, a face per triangle. The body copies what it needs.
+     */
+    public static function mesh(const array<Vec3>& $vertices, const array<int32>& $indices) : result<SoftBody, Error>
+    {
+        guard Shape::checkMesh($vertices, $indices) else ($e) {
+            return .error($e);
+        }
+
+        return .ok(SoftBody(cSoftMesh(
+            $vertices->data(),
+            $vertices->count() as int32,
+            $indices->data(),
+            $indices->count() as int32
+        )));
+    }
+
+    /**
+     * A soft body shaped like the convex hull of `$points`.
+     */
+    public static function hull(const array<Vec3>& $points) : result<SoftBody, Error>
+    {
+        if ($points->empty()) {
+            return .error(.emptyHull);
+        }
+
+        return .ok(SoftBody(cSoftHull($points->data(), $points->count() as int32)));
+    }
+
+    destructor()
+    {
+        cSoftDestroy($this->raw);
+    }
+
+    public const function id() : uint64
+    {
+        return cSoftId($this->raw);
+    }
+
+    public const function nodeCount() : usize
+    {
+        return cSoftNodeCount($this->raw) as usize;
+    }
+
+    /**
+     * Every node's position, in world space.
+     */
+    public const function nodes() : array<Vec3>
+    {
+        usize $n = $this->nodeCount();
+        $out = room<Vec3>($n);
+        cSoftNodes($this->raw, $out->spare(), $n);
+        $out->commit($n);
+        return $out;
+    }
+
+    /**
+     * Every node's normal, for lighting cloth.
+     */
+    public const function normals() : array<Vec3>
+    {
+        usize $n = $this->nodeCount();
+        $out = room<Vec3>($n);
+        cSoftNormals($this->raw, $out->spare(), $n);
+        $out->commit($n);
+        return $out;
+    }
+
+    /**
+     * Three node indices per face, for drawing cloth and volumes. The
+     * faces never change, so fetch this once.
+     */
+    public const function triangles() : array<int32>
+    {
+        usize $n = (cSoftFaceCount($this->raw) as usize) * 3;
+        $out = room<int32>($n);
+        cSoftFaces($this->raw, $out->spare(), $n);
+        $out->commit($n);
+        return $out;
+    }
+
+    /**
+     * Two node indices per link, for drawing ropes. Bending constraints
+     * are links too.
+     */
+    public const function links() : array<int32>
+    {
+        usize $n = (cSoftLinkCount($this->raw) as usize) * 2;
+        $out = room<int32>($n);
+        cSoftLinks($this->raw, $out->spare(), $n);
+        $out->commit($n);
+        return $out;
+    }
+
+    public const function mass() : float32
+    {
+        return cSoftMass($this->raw);
+    }
+
+    /**
+     * Spread `$mass` over the nodes, evenly or, `fromFaces:`, by the area
+     * around each.
+     */
+    public function setMass(float32 $mass, fromFaces: bool $fromFaces = false) : void
+    {
+        cSoftSetMass($this->raw, $mass, $fromFaces as uint32);
+    }
+
+    public const function nodeMass(int32 $node) : float32
+    {
+        return cSoftNodeMass($this->raw, $this->node($node));
+    }
+
+    public function setNodeMass(int32 $node, float32 $mass) : void
+    {
+        cSoftSetNodeMass($this->raw, $this->node($node), $mass);
+    }
+
+    /**
+     * Nail a node where it is: mass zero, it never moves.
+     */
+    public function pin(int32 $node) : void
+    {
+        cSoftSetNodeMass($this->raw, $this->node($node), 0.0f);
+    }
+
+    /**
+     * Tie a node to `to:` a body at the node's current position, so each
+     * drags the other. The soft body keeps the body alive. `collide:`
+     * keeps the two colliding with each other too.
+     */
+    public function anchor(int32 $node, to: Body $body, collide: bool $collide = false, influence: float32 $influence = 1.0f) : void
+    {
+        cSoftAnchor($this->raw, $this->node($node), $body->raw, $collide as uint32, $influence);
+        $this->anchors[] = $body;
+    }
+
+    /**
+     * How hard the links resist stretching, bending and volume change,
+     * 0 to 1.
+     */
+    public function setStiffness(float32 $linear, angular: float32 $angular = 1.0f, volume: float32 $volume = 1.0f) : void
+    {
+        cSoftSetStiffness($this->raw, $linear, $angular, $volume);
+    }
+
+    public const function config() : SoftConfig
+    {
+        $out = SoftConfig();
+        cSoftConfig($this->raw, &$out);
+        return $out;
+    }
+
+    public function setConfig(SoftConfig $config) : void
+    {
+        cSoftSetConfig($this->raw, &$config);
+    }
+
+    /**
+     * How it collides with rigid bodies, and whether with other soft
+     * bodies and itself as well. Self collision needs clusters.
+     */
+    public function setCollision(SoftCollision $mode, softSoft: bool $softSoft = false, selfCollision: bool $self = false) : void
+    {
+        cSoftSetCollision($this->raw, $mode->value(), $softSoft as uint32, $self as uint32);
+    }
+
+    /**
+     * Add links between nodes `$distance` links apart, which resist
+     * bending. 2 is the usual for cloth and ropes.
+     */
+    public function bend(int32 $distance = 2) : void
+    {
+        cSoftBend($this->raw, $distance);
+    }
+
+    /**
+     * Shuffle the order links are solved in, which takes out the
+     * direction bias a regular mesh has.
+     */
+    public function randomize() : void
+    {
+        cSoftRandomize($this->raw);
+    }
+
+    /**
+     * Split the body into `$count` convex clusters, for cluster collision
+     * and self collision. 0 makes one per tetrahedron or face.
+     */
+    public function clusters(int32 $count) : void
+    {
+        cSoftClusters($this->raw, $count);
+    }
+
+    /**
+     * Remember the current shape as the rest pose: its volume, for volume
+     * conservation, and its frame, for pose matching.
+     */
+    public function setPose(volume: bool $volume, frame: bool $frame) : void
+    {
+        cSoftSetPose($this->raw, $volume as uint32, $frame as uint32);
+    }
+
+    /**
+     * Air moving past the body, for flags and sails. Needs drag or lift
+     * in the config to do anything.
+     */
+    public function setWind(Vec3 $velocity) : void
+    {
+        cSoftSetWind($this->raw, &$velocity);
+    }
+
+    /**
+     * A force on every node for the next step.
+     */
+    public function applyForce(Vec3 $force) : void
+    {
+        cSoftApplyForce($this->raw, &$force);
+    }
+
+    public function applyForce(Vec3 $force, node: int32 $node) : void
+    {
+        cSoftApplyNodeForce($this->raw, $this->node($node), &$force);
+    }
+
+    public function setVelocity(Vec3 $velocity) : void
+    {
+        cSoftSetVelocity($this->raw, &$velocity);
+    }
+
+    /**
+     * Move every node. Best done before adding the body to a world.
+     */
+    public function translate(Vec3 $offset) : void
+    {
+        cSoftTranslate($this->raw, &$offset);
+    }
+
+    public function rotate(Quat $rotation) : void
+    {
+        cSoftRotate($this->raw, &$rotation);
+    }
+
+    public function scale(Vec3 $scale) : void
+    {
+        cSoftScale($this->raw, &$scale);
+    }
+
+    public const function aabb() : Aabb
+    {
+        $out = Aabb();
+        cSoftAabb($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * The enclosed volume, for closed bodies.
+     */
+    public const function volume() : float32
+    {
+        return cSoftVolume($this->raw);
+    }
+
+    public function activate() : void
+    {
+        cSoftActivate($this->raw);
+    }
+
+    internal const function inWorld() : bool
+    {
+        return cSoftInWorld($this->raw) != 0;
+    }
+
+    /**
+     * Whether any node is anchored to `$body`.
+     */
+    internal const function holds(Body $body) : bool
+    {
+        foreach ($this->anchors as $anchor) {
+            if ($anchor->raw == $body->raw) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private const function node(int32 $node) : int32
+    {
+        if ($node < 0 || ($node as usize) >= $this->nodeCount()) {
+            die("bt: node {$node} is out of range");
+        }
+
+        return $node;
+    }
+}
+
+/**
+ * The per body knobs of a soft body, with Bullet's defaults. Read them
+ * with SoftBody::config, change what you need, hand them back.
+ */
+public struct SoftConfig
+{
+    /**
+     * How much velocity the nodes lose, 0 to 1.
+     */
+    public float32 $damping = 0.0f;
+
+    /**
+     * Air drag and lift, for cloth in wind.
+     */
+    public float32 $drag = 0.0f;
+    public float32 $lift = 0.0f;
+
+    /**
+     * Pressure inside a closed body. Keeps a balloon round.
+     */
+    public float32 $pressure = 0.0f;
+
+    /**
+     * How hard a closed body keeps its volume. Needs `setPose(volume:)`.
+     */
+    public float32 $volume = 0.0f;
+
+    public float32 $friction = 0.2f;
+
+    /**
+     * How hard it springs back to its rest pose, 0 to 1. Needs
+     * `setPose(frame:)`.
+     */
+    public float32 $pose = 0.0f;
+
+    /**
+     * Contact hardness against rigid, kinematic and soft bodies, and
+     * anchors. 0 to 1.
+     */
+    public float32 $rigidHardness = 1.0f;
+    public float32 $kineticHardness = 0.1f;
+    public float32 $softHardness = 1.0f;
+    public float32 $anchorHardness = 0.7f;
+
+    /**
+     * Solver passes per step: positions, velocities, drift and clusters.
+     * More positions is stiffer cloth.
+     */
+    public int32 $positionIterations = 1;
+    public int32 $velocityIterations = 0;
+    public int32 $driftIterations = 0;
+    public int32 $clusterIterations = 4;
+}

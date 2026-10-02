@@ -1,0 +1,48 @@
+/**
+ * Balls rain through a sensor zone onto the floor. The zone reports who
+ * enters and leaves; the floor reports who lands.
+ */
+
+$world = bt::World();
+$world->trackContacts();
+
+$floor = bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)));
+guard $world->add($floor) else ($e) {
+    die("floor: {$e}");
+}
+
+// the zone floats between y = 2 and 3; nothing bounces off a sensor
+$zone = bt::Body(bt::Shape(box: bt::Vec3(3.0f, 0.5f, 3.0f)), at: bt::Transform(bt::Vec3(0.0f, 2.5f, 0.0f)));
+$zone->setSensor(true);
+guard $world->add($zone) else ($e) {
+    die("zone: {$e}");
+}
+
+map<uint64, string> $names = map<uint64, string>();
+$names[$floor->id()] = 'floor';
+$names[$zone->id()] = 'zone';
+
+$ball = bt::Shape(sphere: 0.25f);
+for (int32 $i = 0; $i < 3; $i++) {
+    float32 $x = ($i as float32) * 2.0f - 2.0f;
+    $b = bt::Body($ball, 1.0f, at: bt::Transform(bt::Vec3($x, 5.0f + ($i as float32), 0.0f)));
+    guard $world->add($b) else ($e) {
+        die("ball: {$e}");
+    }
+    $names[$b->id()] = "ball {$i}";
+}
+
+for (int32 $frame = 0; $frame < 180; $frame++) {
+    $world->step(1.0f / 60.0f);
+
+    foreach ($world->events() as $event) {
+        match ($event) {
+            bt::ContactEvent::began($a, $b) => {
+                echo "t={$frame}  {$names->get($a->id())} touches {$names->get($b->id())}";
+            },
+            bt::ContactEvent::ended($a, $b) => {
+                echo "t={$frame}  {$names->get($a->id())} leaves {$names->get($b->id())}";
+            },
+        };
+    }
+}

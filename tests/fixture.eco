@@ -1,0 +1,46 @@
+use std::math;
+
+internal function near(float32 $a, float32 $b, float32 $tolerance = 0.01f) : bool
+{
+    return math::abs($a - $b) <= $tolerance;
+}
+
+/**
+ * A world with a static ground plane at y = 0 already in it.
+ */
+internal function groundWorld() : bt::World
+{
+    bt::World $world = bt::World();
+    bt::Body $ground = bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)));
+    guard $world->add($ground) else ($e) {
+        die("{$e}");
+    }
+
+    return $world;
+}
+
+/**
+ * A static anchor at the origin and a 1 kg ball hanging one unit off it
+ * along +X, both already in `$world`.
+ */
+internal function pendulum(bt::World $world) : array<bt::Body>
+{
+    bt::Body $anchor = bt::Body(bt::Shape(sphere: 0.05f));
+    bt::Body $bob = bt::Body(bt::Shape(sphere: 0.25f), 1.0f, at: bt::Transform(bt::Vec3(1.0f, 0.0f, 0.0f)));
+    guard $world->add($anchor) else ($e) {
+        die("{$e}");
+    }
+    guard $world->add($bob) else ($e) {
+        die("{$e}");
+    }
+
+    array<bt::Body> $pair = [$anchor, $bob];
+    return $pair;
+}
+
+internal function run(bt::World $world, int32 $steps) : void
+{
+    for (int32 $i = 0; $i < $steps; $i++) {
+        $world->step(1.0f / 60.0f);
+    }
+}

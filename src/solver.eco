@@ -1,0 +1,96 @@
+/**
+ * The knobs of a World's constraint solver. Read the current ones with
+ * World::solver, change what you need, hand them back to setSolver.
+ */
+
+namespace bt;
+
+public struct SolverSettings
+{
+    /**
+     * Solver passes per step. More is stiffer stacks and chains, and
+     * proportionally slower.
+     */
+    public int32 $iterations = 10;
+
+    /**
+     * How much of a joint's error is corrected per step, 0 to 1.
+     */
+    public float32 $erp = 0.2f;
+
+    /**
+     * The same for contacts when split impulse is on.
+     */
+    public float32 $erp2 = 0.2f;
+
+    /**
+     * Global constraint force mixing: how much every constraint may give.
+     */
+    public float32 $cfm = 0.0f;
+
+    public float32 $frictionErp = 0.2f;
+
+    /**
+     * How much of last step's impulses seed this step's, 0 to 1.
+     */
+    public float32 $warmStarting = 0.85f;
+
+    /**
+     * Relative speeds below this do not bounce, which keeps resting
+     * bodies from jittering.
+     */
+    public float32 $restitutionThreshold = 0.2f;
+
+    /**
+     * Resolve penetration separately from velocity, so bodies pushed
+     * apart do not gain energy. Applies once penetration is deeper than
+     * `$splitThreshold` (a negative distance).
+     */
+    public bool $splitImpulse = true;
+
+    public float32 $splitThreshold = -0.04f;
+
+    /**
+     * Islands smaller than this are batched together for the solver. A
+     * dantzig world starts at 1, since batching islands defeats MLCP, so
+     * read its settings with World::solver rather than starting here.
+     */
+    public int32 $minimumBatch = 128;
+
+    /**
+     * Bullet's defaults.
+     */
+    public constructor()
+    {
+    }
+
+    internal constructor(const RawSolver& $raw)
+    {
+        $this->iterations = $raw->iterations;
+        $this->erp = $raw->erp;
+        $this->erp2 = $raw->erp2;
+        $this->cfm = $raw->cfm;
+        $this->frictionErp = $raw->frictionErp;
+        $this->warmStarting = $raw->warmStarting;
+        $this->restitutionThreshold = $raw->restitutionThreshold;
+        $this->splitThreshold = $raw->splitThreshold;
+        $this->splitImpulse = $raw->splitImpulse != 0;
+        $this->minimumBatch = $raw->minimumBatch;
+    }
+
+    internal const function raw() : RawSolver
+    {
+        $out = RawSolver();
+        $out->iterations = $this->iterations;
+        $out->erp = $this->erp;
+        $out->erp2 = $this->erp2;
+        $out->cfm = $this->cfm;
+        $out->frictionErp = $this->frictionErp;
+        $out->warmStarting = $this->warmStarting;
+        $out->restitutionThreshold = $this->restitutionThreshold;
+        $out->splitThreshold = $this->splitThreshold;
+        $out->splitImpulse = $this->splitImpulse as uint32;
+        $out->minimumBatch = $this->minimumBatch;
+        return $out;
+    }
+}

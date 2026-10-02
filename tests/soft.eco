@@ -1,0 +1,151 @@
+test rope_hangs_from_a_pin
+{
+    bt::World $world = bt::World();
+    bt::SoftBody $rope = guard bt::SoftBody::rope(bt::Vec3(0.0f, 5.0f, 0.0f), to: bt::Vec3(4.0f, 5.0f, 0.0f), segments: 8) else ($e) {
+        die("{$e}");
+    }
+    assert($rope->nodeCount() == 9);
+    assert($rope->links()->count() == 16);
+    $rope->setMass(1.0f);
+    $rope->pin(0);
+    assert($rope->nodeMass(0) == 0.0f);
+    $rope->setConfig($rope->config());
+    assert(!$world->add($rope)->failed());
+    assert($world->add($rope)->failed());
+
+    run($world, 300);
+    array<bt::Vec3> $nodes = $rope->nodes();
+    assert($nodes->count() == 9);
+    // the pinned end stays, the free end swings down under it
+    assert(near($nodes[0]->y, 5.0f, 0.01f));
+    bt::Vec3 $end = $nodes[8];
+    assert($end->y < 2.0f);
+    assert(($end - $nodes[0])->length() < 4.5f);
+
+    assert(!$world->remove($rope)->failed());
+}
+
+test cloth_drapes_over_a_box
+{
+    bt::World $world = bt::World();
+    bt::Body $table = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)), at: bt::Transform(bt::Vec3(0.0f, 1.0f, 0.0f)));
+    assert(!$world->add($table)->failed());
+
+    bt::SoftBody $sheet = guard bt::SoftBody::cloth(
+        bt::Vec3(-2.0f, 3.0f, -2.0f),
+        bt::Vec3(2.0f, 3.0f, -2.0f),
+        bt::Vec3(-2.0f, 3.0f, 2.0f),
+        bt::Vec3(2.0f, 3.0f, 2.0f),
+        resolution: 11,
+        11
+    ) else ($e) {
+        die("{$e}");
+    }
+    assert($sheet->nodeCount() == 121);
+    assert($sheet->triangles()->count() == 10 * 10 * 2 * 3);
+    $sheet->setMass(1.0f);
+    $sheet->bend(2);
+    bt::SoftConfig $c = $sheet->config();
+    $c->positionIterations = 4;
+    $sheet->setConfig($c);
+    assert($sheet->config()->positionIterations == 4);
+    assert(!$world->add($sheet)->failed());
+
+    run($world, 240);
+    array<bt::Vec3> $nodes = $sheet->nodes();
+    // the middle rests on the table top, the corners hang below it
+    assert($nodes[60]->y > 1.9f && $nodes[60]->y < 2.3f);
+    assert($nodes[0]->y < 1.9f);
+    assert($sheet->normals()->count() == 121);
+    assert($sheet->aabb()->max->y < 2.5f);
+}
+
+test anchor_drags_a_body
+{
+    bt::World $world = bt::World();
+    bt::Body $weight = bt::Body(bt::Shape(sphere: 0.3f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    assert(!$world->add($weight)->failed());
+
+    bt::SoftBody $rope = guard bt::SoftBody::rope(bt::Vec3(0.0f, 6.0f, 0.0f), to: bt::Vec3(0.0f, 3.0f, 0.0f), segments: 6) else ($e) {
+        die("{$e}");
+    }
+    $rope->setMass(0.5f);
+    $rope->pin(0);
+    $rope->anchor(6, to: $weight);
+    assert(!$world->add($rope)->failed());
+
+    run($world, 240);
+    // the rope holds the weight up: it hangs, it does not fall away
+    assert($weight->position()->y > 2.0f);
+    assert($weight->position()->y < 3.5f);
+
+    // the anchor still points at the weight, so it stays until the rope goes
+    assert($world->remove($weight)->failed());
+    assert(!$world->remove($rope)->failed());
+    assert(!$world->remove($weight)->failed());
+}
+
+test soft_volumes_and_bad_input
+{
+    bt::World $world = groundWorld();
+    bt::SoftBody $ball = bt::SoftBody(ellipsoid: bt::Vec3(0.0f, 3.0f, 0.0f), radius: bt::Vec3(1.0f, 1.0f, 1.0f), resolution: 64);
+    $ball->setMass(1.0f);
+    bt::SoftConfig $c = $ball->config();
+    $c->pressure = 50.0f;
+    $ball->setConfig($c);
+    assert(!$world->add($ball)->failed());
+    run($world, 180);
+    assert($ball->volume() > 1.0f);
+    assert($ball->aabb()->min->y > -0.2f);
+
+    array<bt::Vec3> $pts = [bt::Vec3(), bt::Vec3(1.0f, 0.0f, 0.0f), bt::Vec3(0.0f, 1.0f, 0.0f), bt::Vec3(0.0f, 0.0f, 1.0f)];
+    bt::SoftBody $tet = guard bt::SoftBody::hull($pts) else ($e) {
+        die("{$e}");
+    }
+    assert($tet->nodeCount() == 4);
+
+    array<int32> $bad = [0, 1];
+    assert(bt::SoftBody::mesh($pts, $bad)->failed());
+    array<int32> $faces = [0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3];
+    bt::SoftBody $mesh = guard bt::SoftBody::mesh($pts, $faces) else ($e) {
+        die("{$e}");
+    }
+    assert($mesh->nodeCount() == 4);
+    $mesh->translate(bt::Vec3(0.0f, 5.0f, 0.0f));
+    $mesh->setCollision(.clusters, softSoft: true);
+    $mesh->clusters(1);
+    $mesh->setStiffness(0.5f);
+    $mesh->setWind(bt::Vec3(1.0f, 0.0f, 0.0f));
+    $mesh->applyForce(bt::Vec3(0.0f, 1.0f, 0.0f));
+    $mesh->applyForce(bt::Vec3(0.0f, 1.0f, 0.0f), node: 1);
+    assert(!$world->add($mesh)->failed());
+    run($world, 10);
+}
+
+test soft_body_outlives_its_world
+{
+    bt::SoftBody $rope = guard bt::SoftBody::rope(bt::Vec3(0.0f, 5.0f, 0.0f), to: bt::Vec3(1.0f, 5.0f, 0.0f), segments: 4) else ($e) {
+        die("{$e}");
+    }
+    $rope->setMass(1.0f);
+
+    if (true) {
+        bt::World $world = groundWorld();
+        assert(!$world->add($rope)->failed());
+        run($world, 10);
+    }
+
+    $rope->translate(bt::Vec3(0.0f, 1.0f, 0.0f));
+    bt::World $next = groundWorld();
+    assert(!$next->add($rope)->failed());
+    run($next, 10);
+}
+
+test rope_and_cloth_refuse_bad_sizes
+{
+    bt::Vec3 $a = bt::Vec3(0.0f, 1.0f, 0.0f);
+    bt::Vec3 $b = bt::Vec3(1.0f, 1.0f, 0.0f);
+    assert(bt::SoftBody::rope($a, to: $b, segments: 0)->failed());
+    assert(bt::SoftBody::cloth($a, $b, $a, $b, resolution: 1, 5)->failed());
+    assert(!bt::SoftBody::rope($a, to: $b, segments: 1)->failed());
+}

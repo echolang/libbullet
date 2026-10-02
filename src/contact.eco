@@ -1,0 +1,30 @@
+/**
+ * Contact points and the events they add up to.
+ */
+
+namespace bt;
+
+/**
+ * One contact point between two bodies. `$normal` is on b, pointing at
+ * a; `$distance` is negative while they overlap. `$impulse` is what the
+ * solver pushed through this point on the last step.
+ */
+public struct Contact
+{
+    public const Body $a;
+    public const Body $b;
+    public const Vec3 $pointA;
+    public const Vec3 $pointB;
+    public const Vec3 $normal;
+    public const float32 $distance;
+    public const float32 $impulse;
+}
+
+/**
+ * Two bodies that started or stopped touching, from World::events.
+ */
+public enum ContactEvent
+{
+    case began(Body $a, Body $b);
+    case ended(Body $a, Body $b);
+}

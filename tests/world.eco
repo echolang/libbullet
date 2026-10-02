@@ -1,0 +1,153 @@
+test default_gravity
+{
+    bt::World $world = bt::World();
+    assert(near($world->gravity()->y, -9.81f));
+    $world->setGravity(bt::Vec3(0.0f, -1.0f, 0.0f));
+    assert($world->gravity()->y == -1.0f);
+}
+
+test custom_gravity
+{
+    bt::World $world = bt::World(gravity: bt::Vec3(0.0f, 0.0f, -3.0f));
+    assert($world->gravity()->z == -3.0f);
+}
+
+test sphere_settles_on_plane
+{
+    bt::World $world = groundWorld();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 5.0f, 0.0f)));
+    guard $world->add($ball) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 240);
+    assert(near($ball->position()->y, 0.5f, 0.05f));
+    assert(near($ball->velocity()->y, 0.0f, 0.05f));
+}
+
+test static_body_does_not_fall
+{
+    bt::World $world = bt::World();
+    bt::Body $box = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)), at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    guard $world->add($box) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 60);
+    assert($box->position()->y == 3.0f);
+}
+
+test step_reports_substeps
+{
+    bt::World $world = bt::World();
+    assert($world->step(1.0f / 60.0f) == 1);
+    assert($world->step(0.1f, 10) == 6);
+}
+
+test add_twice_is_refused
+{
+    bt::World $world = bt::World();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    guard $world->add($ball) else ($e) {
+        die("{$e}");
+    }
+
+    status<bt::Error> $again = $world->add($ball);
+    assert($again->failed());
+    bt::Error $e = $again->failure();
+    match ($e) {
+        bt::Error::alreadyInWorld => {},
+        else => { assert(false, 'expected alreadyInWorld'); },
+    };
+
+    bt::World $other = bt::World();
+    assert($other->add($ball)->failed());
+    assert($world->count() == 1);
+}
+
+test remove_and_readd
+{
+    bt::World $world = bt::World();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+
+    status<bt::Error> $missing = $world->remove($ball);
+    assert($missing->failed());
+    bt::Error $e = $missing->failure();
+    match ($e) {
+        bt::Error::notInWorld => {},
+        else => { assert(false, 'expected notInWorld'); },
+    };
+
+    assert(!$world->add($ball)->failed());
+    assert(!$world->remove($ball)->failed());
+    assert($world->count() == 0);
+
+    bt::World $other = bt::World();
+    assert(!$other->add($ball)->failed());
+}
+
+test ray_hits_ground
+{
+    bt::World $world = groundWorld();
+
+    bt::RayHit $hit = guard $world->ray(bt::Vec3(1.0f, 10.0f, 2.0f), bt::Vec3(1.0f, -10.0f, 2.0f)) else {
+        die('expected a hit');
+    }
+
+    assert(near($hit->point->y, 0.0f));
+    assert(near($hit->point->x, 1.0f));
+    assert(near($hit->normal->y, 1.0f));
+    assert(near($hit->fraction, 0.5f));
+    assert($hit->body->shape->inertia(1.0f)->y == 0.0f);
+}
+
+test ray_finds_the_closest_body
+{
+    bt::World $world = groundWorld();
+    bt::Body $crate = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)), at: bt::Transform(bt::Vec3(0.0f, 4.0f, 0.0f)));
+    guard $world->add($crate) else ($e) {
+        die("{$e}");
+    }
+
+    bt::RayHit $hit = guard $world->ray(bt::Vec3(0.0f, 10.0f, 0.0f), bt::Vec3(0.0f, -10.0f, 0.0f)) else {
+        die('expected a hit');
+    }
+
+    assert(near($hit->point->y, 5.0f));
+    assert(near($hit->body->position()->y, 4.0f));
+}
+
+test ray_misses
+{
+    bt::World $world = groundWorld();
+    bt::RayHit? $hit = $world->ray(bt::Vec3(0.0f, 10.0f, 0.0f), bt::Vec3(0.0f, 20.0f, 0.0f));
+    assert($hit == null);
+}
+
+test world_dies_before_its_bodies
+{
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    bt::Body $floor = bt::Body(bt::Shape(box: bt::Vec3(5.0f, 0.5f, 5.0f)));
+    bt::Hinge $hinge = bt::Hinge(
+        $ball,
+        $floor,
+        pivotA: bt::Vec3(),
+        pivotB: bt::Vec3(),
+        axisA: bt::Vec3(0.0f, 0.0f, 1.0f),
+        axisB: bt::Vec3(0.0f, 0.0f, 1.0f)
+    );
+
+    if (true) {
+        bt::World $world = bt::World();
+        assert(!$world->add($ball)->failed());
+        assert(!$world->add($floor)->failed());
+        assert(!$world->add($hinge)->failed());
+        run($world, 10);
+    }
+
+    bt::World $next = bt::World();
+    assert(!$next->add($ball)->failed());
+    assert(!$next->add($floor)->failed());
+    assert(!$next->add($hinge)->failed());
+    run($next, 10);
+}

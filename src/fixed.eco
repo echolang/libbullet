@@ -1,0 +1,43 @@
+/**
+ * A weld: the two bodies keep the pose they have relative to each other.
+ */
+
+namespace bt;
+
+public class Fixed : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Frames are in each body's local space and meet in one place: the
+     * bodies are held where the frames line up.
+     */
+    public constructor(Body $a, Body $b, frameA: Transform $frameA, frameB: Transform $frameB)
+    {
+        $this->joint = Joint(cFixedCreate($a->raw, $b->raw, &$frameA, &$frameB), $a, $b, 'fixed constraint');
+    }
+
+    /**
+     * Weld `$b` to `$a` exactly as the two are placed right now.
+     */
+    public constructor(Body $a, Body $b)
+    {
+        $frameA = Transform();
+        $frameB = $b->transform()->inverse() * $a->transform();
+        $this->joint = Joint(cFixedCreate($a->raw, $b->raw, &$frameA, &$frameB), $a, $b, 'fixed constraint');
+    }
+
+    /**
+     * Weld `$a` to the world where it is right now.
+     */
+    public constructor(Body $a)
+    {
+        $frame = Transform();
+        $this->joint = Joint(cFixedCreate($a->raw, null, &$frame, &$frame), $a, null, 'fixed constraint');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+}

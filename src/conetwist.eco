@@ -1,0 +1,104 @@
+/**
+ * A shoulder: a ball joint whose swing is held inside a cone and whose
+ * twist about the cone's axis is limited too. The ragdoll joint.
+ */
+
+namespace bt;
+
+/**
+ * The cone's axis is the frames' X axis. Swing 1 is about their Z axis,
+ * swing 2 about their Y axis, twist about X.
+ */
+public class ConeTwist : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Frames are in each body's local space.
+     */
+    public constructor(Body $a, Body $b, frameA: Transform $frameA, frameB: Transform $frameB)
+    {
+        $this->joint = Joint(cConeCreate($a->raw, $b->raw, &$frameA, &$frameB), $a, $b, 'cone twist');
+    }
+
+    /**
+     * `$a` held to the world at `frame:`, in its local space, where it is
+     * right now.
+     */
+    public constructor(Body $a, frame: Transform $frame)
+    {
+        $this->joint = Joint(cConeCreate($a->raw, null, &$frame, &$frame), $a, null, 'cone twist');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    /**
+     * Half angles in radians: how far the swing may lean each way and how
+     * far the twist may turn. The rest are Bullet's tuning knobs, with its
+     * defaults.
+     */
+    public function setLimit(
+        float32 $swing1,
+        float32 $swing2,
+        float32 $twist,
+        softness: float32 $softness = 1.0f,
+        bias: float32 $bias = 0.3f,
+        relaxation: float32 $relaxation = 1.0f
+    ) : void
+    {
+        cConeSetLimit($this->joint->raw, $swing1, $swing2, $twist, $softness, $bias, $relaxation);
+    }
+
+    public function setDamping(float32 $damping) : void
+    {
+        cConeSetDamping($this->joint->raw, $damping);
+    }
+
+    /**
+     * Drive the joint toward `setMotorTarget` with at most `maxImpulse:`
+     * per step.
+     */
+    public function setMotor(maxImpulse: float32 $maxImpulse) : void
+    {
+        cConeSetMotor($this->joint->raw, 1, $maxImpulse);
+    }
+
+    public function disableMotor() : void
+    {
+        cConeSetMotor($this->joint->raw, 0, 0.0f);
+    }
+
+    /**
+     * The rotation of A's frame relative to B's the motor should reach.
+     */
+    public function setMotorTarget(Quat $target) : void
+    {
+        cConeSetMotorTarget($this->joint->raw, &$target);
+    }
+
+    public function setFrames(Transform $frameA, Transform $frameB) : void
+    {
+        cConeSetFrames($this->joint->raw, &$frameA, &$frameB);
+    }
+
+    /**
+     * The twist as of the last step, in radians.
+     */
+    public const function twist() : float32
+    {
+        return cConeTwist($this->joint->raw);
+    }
+
+    public const function swingSpan1() : float32
+    {
+        return cConeSwing1($this->joint->raw);
+    }
+
+    public const function swingSpan2() : float32
+    {
+        return cConeSwing2($this->joint->raw);
+    }
+}

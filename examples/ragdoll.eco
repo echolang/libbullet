@@ -1,0 +1,73 @@
+/**
+ * A four-part ragdoll dropped onto the floor: cone twist shoulders and
+ * hips, a hinged knee, printed as it crumples.
+ */
+
+use std::math;
+
+$world = bt::World();
+guard $world->add(bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f)))) else ($e) {
+    die("floor: {$e}");
+}
+
+$torso = bt::Body(bt::Shape(box: bt::Vec3(0.3f, 0.4f, 0.15f)), 10.0f, at: bt::Transform(bt::Vec3(0.0f, 2.5f, 0.0f)));
+$arm = bt::Body(bt::Shape(capsule: 0.07f, height: 0.5f, axis: .x), 2.0f, at: bt::Transform(bt::Vec3(0.7f, 2.8f, 0.0f)));
+$thigh = bt::Body(bt::Shape(capsule: 0.09f, height: 0.35f), 4.0f, at: bt::Transform(bt::Vec3(0.15f, 1.8f, 0.0f)));
+$shin = bt::Body(bt::Shape(capsule: 0.08f, height: 0.35f), 3.0f, at: bt::Transform(bt::Vec3(0.15f, 1.2f, 0.0f)));
+
+array<bt::Body> $parts = [$torso, $arm, $thigh, $shin];
+foreach ($parts as $part) {
+    guard $world->add($part) else ($e) {
+        die("part: {$e}");
+    }
+}
+
+// the cone axis is each frame's X; the leg frames turn X to point down
+$down = bt::Quat(axis: bt::Vec3(0.0f, 0.0f, 1.0f), -math::HALF_PI_F32);
+
+$shoulder = bt::ConeTwist(
+    $torso,
+    $arm,
+    frameA: bt::Transform(bt::Vec3(0.35f, 0.3f, 0.0f)),
+    frameB: bt::Transform(bt::Vec3(-0.35f, 0.0f, 0.0f))
+);
+$shoulder->setLimit(math::HALF_PI_F32, math::HALF_PI_F32, 0.3f);
+
+$hip = bt::ConeTwist(
+    $torso,
+    $thigh,
+    frameA: bt::Transform(bt::Vec3(0.15f, -0.4f, 0.0f), $down),
+    frameB: bt::Transform(bt::Vec3(0.0f, 0.3f, 0.0f), $down)
+);
+$hip->setLimit(0.8f, 0.8f, 0.2f);
+
+$knee = bt::Hinge(
+    $thigh,
+    $shin,
+    pivotA: bt::Vec3(0.0f, -0.3f, 0.0f),
+    pivotB: bt::Vec3(0.0f, 0.3f, 0.0f),
+    axisA: bt::Vec3(1.0f, 0.0f, 0.0f),
+    axisB: bt::Vec3(1.0f, 0.0f, 0.0f)
+);
+$knee->setLimit(0.0f, 2.2f);
+
+array<bt::Constraint> $joints = [$shoulder, $hip, $knee];
+foreach ($joints as $joint) {
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("joint: {$e}");
+    }
+}
+
+// a shove so it does not just fold straight down
+$torso->applyImpulse(bt::Vec3(0.0f, 0.0f, 15.0f), at: bt::Vec3(0.0f, 0.3f, 0.0f));
+
+for (int32 $frame = 0; $frame <= 180; $frame++) {
+    if ($frame % 30 == 0) {
+        bt::Vec3 $t = $torso->position();
+        bt::Vec3 $s = $shin->position();
+        float32 $bend = $knee->angle() * 180.0f / math::PI_F32;
+        echo "t={$frame}  torso=({$t->x:.2f}, {$t->y:.2f}, {$t->z:.2f})  shin y={$s->y:.2f}  knee={$bend:.0f} deg";
+    }
+
+    $world->step(1.0f / 60.0f);
+}

@@ -1,0 +1,151 @@
+/**
+ * What every constraint has in common. Each kind (Hinge, Slider, ...)
+ * owns one and hands it out through `joint()`.
+ */
+
+namespace bt;
+
+/**
+ * The Bullet constraint behind a Hinge, a Slider or any other kind, with
+ * the knobs they all share. It holds both bodies alive; `b` is null for a
+ * joint that holds its body to the world.
+ */
+public class Joint
+{
+    internal const ptr<eco_bt_constraint> $raw;
+    public const Body $a;
+
+    /**
+     * The second body, or null when the joint holds `a` to the world.
+     */
+    public const Body? $b;
+
+    internal constructor(ptr<eco_bt_constraint> $raw, Body $a, Body? $b, string $what)
+    {
+        $this->raw = live($raw, "out of memory creating a {$what}");
+        $this->a = $a;
+        $this->b = $b;
+    }
+
+    destructor()
+    {
+        cConstraintDestroy($this->raw);
+    }
+
+    /**
+     * Whether `$body` is one of the two ends.
+     */
+    internal const function holds(Body $body) : bool
+    {
+        if ($this->a->raw == $body->raw) {
+            return true;
+        }
+
+        Body $b = guard $this->b else {
+            return false;
+        }
+
+        return $b->raw == $body->raw;
+    }
+
+    /**
+     * A disabled joint is skipped by the solver. A joint that broke reads
+     * disabled too, and enabling it mends it.
+     */
+    public const function enabled() : bool
+    {
+        return cConstraintEnabled($this->raw) != 0;
+    }
+
+    public function setEnabled(bool $on) : void
+    {
+        cConstraintSetEnabled($this->raw, $on as uint32);
+    }
+
+    public const function breakingImpulse() : float32
+    {
+        return cConstraintBreakingImpulse($this->raw);
+    }
+
+    /**
+     * Break the joint once a single step needs more than `$impulse` to
+     * hold it. Unbreakable by default.
+     */
+    public function setBreakingImpulse(float32 $impulse) : void
+    {
+        cConstraintSetBreakingImpulse($this->raw, $impulse);
+    }
+
+    /**
+     * The impulse the solver applied on the last step, as Bullet keeps
+     * it: the figure of the joint's last constraint row, which for a
+     * point joint is one axis. `feedback` has the whole of it.
+     */
+    public const function appliedImpulse() : float32
+    {
+        return cConstraintAppliedImpulse($this->raw);
+    }
+
+    /**
+     * The force and torque the joint put on each body on the last step.
+     */
+    public const function feedback() : JointFeedback
+    {
+        $out = JointFeedback();
+        cConstraintFeedback($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Solve this joint with its own number of solver passes, for a stiff
+     * chain in an otherwise cheap world. -1 goes back to the world's.
+     */
+    public function setIterations(int32 $iterations) : void
+    {
+        cConstraintSetIterations($this->raw, $iterations);
+    }
+
+    /**
+     * Set a softness knob on every axis.
+     */
+    public function setParam(Param $param, float32 $value) : void
+    {
+        cConstraintSetParam($this->raw, $param->value(), $value, -1);
+    }
+
+    /**
+     * Set a softness knob on one degree of freedom. Not every kind takes
+     * every axis; Bullet ignores the ones it has no use for.
+     */
+    public function setParam(Param $param, float32 $value, dof: Dof $dof) : void
+    {
+        cConstraintSetParam($this->raw, $param->value(), $value, $dof->value());
+    }
+
+    /**
+     * How big the debug drawer draws the joint's frames.
+     */
+    public function setDebugSize(float32 $size) : void
+    {
+        cConstraintSetDebugSize($this->raw, $size);
+    }
+}
+
+/**
+ * What a constraint pushed on each body during the last step.
+ */
+public struct JointFeedback
+{
+    public Vec3 $forceA = Vec3();
+    public Vec3 $torqueA = Vec3();
+    public Vec3 $forceB = Vec3();
+    public Vec3 $torqueB = Vec3();
+}
+
+/**
+ * Every constraint kind. It is what World::add and World::remove take.
+ */
+public interface Constraint
+{
+    const function joint() : Joint;
+}

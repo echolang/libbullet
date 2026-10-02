@@ -1,0 +1,61 @@
+/**
+ * A volume that watches: bodies pass through it, and World::overlaps and
+ * World::touching say which ones are inside.
+ */
+
+namespace bt;
+
+public class Ghost
+{
+    internal const ptr<eco_bt_ghost> $raw;
+    public const Shape $shape;
+
+    public constructor(Shape $shape, at: Transform $at = Transform())
+    {
+        $this->shape = $shape;
+        $this->raw = live(cGhostCreate($shape->raw, &$at), 'out of memory creating a ghost');
+    }
+
+    destructor()
+    {
+        cGhostDestroy($this->raw);
+    }
+
+    public const function id() : uint64
+    {
+        return cGhostId($this->raw);
+    }
+
+    public const function transform() : Transform
+    {
+        $out = Transform();
+        cGhostTransform($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Move the ghost. What it overlaps is brought up to date on the next
+     * step.
+     */
+    public function setTransform(Transform $at) : void
+    {
+        cGhostSetTransform($this->raw, &$at);
+    }
+
+    public const function position() : Vec3
+    {
+        return $this->transform()->origin;
+    }
+
+    public function setPosition(Vec3 $position) : void
+    {
+        $t = $this->transform();
+        $t->origin = $position;
+        $this->setTransform($t);
+    }
+
+    internal const function inWorld() : bool
+    {
+        return cGhostInWorld($this->raw) != 0;
+    }
+}

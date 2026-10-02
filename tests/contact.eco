@@ -1,0 +1,138 @@
+test contacts_after_a_landing
+{
+    bt::World $world = bt::World();
+    bt::Body $floor = bt::Body(bt::Shape(box: bt::Vec3(5.0f, 0.5f, 5.0f)), at: bt::Transform(bt::Vec3(0.0f, -0.5f, 0.0f)));
+    bt::Body $crate = bt::Body(bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f)), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+    assert(!$world->add($floor)->failed());
+    assert(!$world->add($crate)->failed());
+
+    assert($world->contacts()->empty());
+    run($world, 120);
+
+    // a resting box keeps a few manifold points, not all at or below zero
+    array<bt::Contact> $all = $world->contacts();
+    assert(!$all->empty());
+    foreach ($all as $c) {
+        assert($c->distance <= 0.0f);
+        assert(near($c->pointA->y, 0.0f, 0.05f) || near($c->pointB->y, 0.0f, 0.05f));
+    }
+
+    array<bt::Contact> $mine = $world->contacts($crate);
+    assert(!$mine->empty());
+    foreach ($mine as $c) {
+        assert($c->a->id() == $crate->id());
+        assert($c->b->id() == $floor->id());
+        // normal on the floor, pointing up at the crate
+        assert(near($c->normal->y, 1.0f, 0.05f));
+    }
+
+    assert(!$world->contacts($floor, $crate)->empty());
+
+    bt::Body $far = bt::Body(bt::Shape(sphere: 0.5f), at: bt::Transform(bt::Vec3(0.0f, 10.0f, 0.0f)));
+    assert(!$world->add($far)->failed());
+    assert($world->contacts($far)->empty());
+}
+
+test near_misses_are_not_contacts
+{
+    bt::World $world = bt::World();
+    bt::Body $floor = bt::Body(bt::Shape(box: bt::Vec3(5.0f, 0.5f, 5.0f)), at: bt::Transform(bt::Vec3(0.0f, -0.5f, 0.0f)));
+    assert(!$world->add($floor)->failed());
+
+    // one hundredth above the floor: within the margins, not touching
+    bt::Transform $above = bt::Transform(bt::Vec3(0.0f, 0.51f, 0.0f));
+    assert($world->overlap(bt::Shape(sphere: 0.5f), at: $above)->empty());
+    bt::Body $hover = bt::Body(bt::Shape(sphere: 0.5f), at: $above);
+    assert(!$world->add($hover)->failed());
+    assert($world->contacts($hover)->empty());
+    assert($world->contacts($hover, $floor)->empty());
+
+    // one hundredth into it
+    bt::Transform $into = bt::Transform(bt::Vec3(3.0f, 0.49f, 0.0f));
+    assert($world->overlap(bt::Shape(sphere: 0.5f), at: $into)->count() == 1);
+}
+
+/**
+ * How many began and ended events name `$body`.
+ */
+internal function tally(const array<bt::ContactEvent>& $events, bt::Body $body) : fixed_array<int32, 2>
+{
+    fixed_array<int32, 2> $n = [0, 0];
+
+    foreach ($events as $e) {
+        match ($e) {
+            bt::ContactEvent::began($a, $b) => {
+                if ($a->id() == $body->id() || $b->id() == $body->id()) {
+                    $n[0] = $n[0] + 1;
+                }
+            },
+            bt::ContactEvent::ended($a, $b) => {
+                if ($a->id() == $body->id() || $b->id() == $body->id()) {
+                    $n[1] = $n[1] + 1;
+                }
+            },
+        };
+    }
+
+    return $n;
+}
+
+test began_once_and_ended_on_lift_off
+{
+    bt::World $world = groundWorld();
+    $world->trackContacts();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 2.0f, 0.0f)));
+    assert(!$world->add($ball)->failed());
+
+    run($world, 180);
+    fixed_array<int32, 2> $landing = tally($world->events(), $ball);
+    assert($landing[0] == 1);
+    assert($landing[1] == 0);
+
+    // resting does not flicker
+    run($world, 60);
+    fixed_array<int32, 2> $resting = tally($world->events(), $ball);
+    assert($resting[0] == 0 && $resting[1] == 0);
+
+    $ball->setVelocity(bt::Vec3(0.0f, 8.0f, 0.0f));
+    run($world, 20);
+    fixed_array<int32, 2> $off = tally($world->events(), $ball);
+    assert($off[1] == 1);
+}
+
+test removing_a_body_ends_its_pairs
+{
+    bt::World $world = groundWorld();
+    $world->trackContacts();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)));
+    assert(!$world->add($ball)->failed());
+    run($world, 30);
+    assert(tally($world->events(), $ball)[0] == 1);
+
+    assert(!$world->remove($ball)->failed());
+    assert(tally($world->events(), $ball)[1] == 1);
+}
+
+test sensors_report_events
+{
+    bt::World $world = groundWorld();
+    $world->trackContacts();
+    bt::Body $zone = bt::Body(bt::Shape(box: bt::Vec3(2.0f, 0.5f, 2.0f)), at: bt::Transform(bt::Vec3(0.0f, 3.0f, 0.0f)));
+    $zone->setSensor(true);
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.25f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 6.0f, 0.0f)));
+    assert(!$world->add($zone)->failed());
+    assert(!$world->add($ball)->failed());
+
+    run($world, 180);
+    fixed_array<int32, 2> $n = tally($world->events(), $zone);
+    assert($n[0] == 1 && $n[1] == 1);
+}
+
+test untracked_worlds_stay_quiet
+{
+    bt::World $world = groundWorld();
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 1.0f, 0.0f)));
+    assert(!$world->add($ball)->failed());
+    run($world, 60);
+    assert($world->events()->empty());
+}

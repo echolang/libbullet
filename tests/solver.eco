@@ -1,0 +1,62 @@
+test solver_settings_roundtrip
+{
+    bt::World $world = bt::World();
+    bt::SolverSettings $s = $world->solver();
+    assert($s->iterations == 10);
+    assert($s->splitImpulse);
+
+    $s->iterations = 25;
+    $s->erp = 0.4f;
+    $s->splitImpulse = false;
+    $world->setSolver($s);
+
+    bt::SolverSettings $back = $world->solver();
+    assert($back->iterations == 25);
+    assert(near($back->erp, 0.4f));
+    assert(!$back->splitImpulse);
+    assert(bt::SolverSettings()->iterations == 10);
+}
+
+test solver_settings_match_a_fresh_world
+{
+    bt::SolverSettings $fresh = bt::World()->solver();
+    bt::SolverSettings $defaults = bt::SolverSettings();
+    assert(near($defaults->erp, $fresh->erp));
+    assert(near($defaults->erp2, $fresh->erp2));
+    assert(near($defaults->cfm, $fresh->cfm));
+    assert(near($defaults->frictionErp, $fresh->frictionErp));
+    assert(near($defaults->warmStarting, $fresh->warmStarting));
+    assert(near($defaults->restitutionThreshold, $fresh->restitutionThreshold));
+    assert(near($defaults->splitThreshold, $fresh->splitThreshold));
+    assert($defaults->minimumBatch == $fresh->minimumBatch);
+}
+
+test every_solver_stacks_boxes
+{
+    array<bt::SolverKind> $kinds = [bt::SolverKind::sequential, bt::SolverKind::nncg, bt::SolverKind::dantzig];
+
+    foreach ($kinds as $kind) {
+        bt::World $world = bt::World(solver: $kind);
+        assert(!$world->add(bt::Body(bt::Shape(plane: bt::Vec3(0.0f, 1.0f, 0.0f))))->failed());
+
+        bt::Shape $crate = bt::Shape(box: bt::Vec3(0.5f, 0.5f, 0.5f));
+        bt::Body $top = bt::Body($crate, 1.0f, at: bt::Transform(bt::Vec3(0.0f, 1.5f, 0.0f)));
+        assert(!$world->add(bt::Body($crate, 1.0f, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f))))->failed());
+        assert(!$world->add($top)->failed());
+
+        run($world, 120);
+        assert(near($top->position()->y, 1.5f, 0.05f));
+    }
+}
+
+test clear_forces_on_the_world
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    bt::Body $body = bt::Body(bt::Shape(sphere: 0.5f), 1.0f);
+    assert(!$world->add($body)->failed());
+    $body->applyForce(bt::Vec3(10.0f, 0.0f, 0.0f));
+    $world->clearForces();
+    run($world, 10);
+    assert($body->velocity()->x == 0.0f);
+    $world->setUpdateAllAabbs(true);
+}

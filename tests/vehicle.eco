@@ -1,0 +1,111 @@
+/**
+ * A 1 x 0.5 x 2 chassis with four wheels, on a large floor.
+ */
+internal function car(bt::World $world) : bt::Vehicle
+{
+    bt::Body $floor = bt::Body(bt::Shape(box: bt::Vec3(100.0f, 0.5f, 100.0f)), at: bt::Transform(bt::Vec3(0.0f, -0.5f, 0.0f)));
+    guard $world->add($floor) else ($e) {
+        die("{$e}");
+    }
+
+    bt::Body $chassis = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 0.25f, 2.0f)), 800.0f, at: bt::Transform(bt::Vec3(0.0f, 1.0f, 0.0f)));
+    guard $world->add($chassis) else ($e) {
+        die("{$e}");
+    }
+
+    bt::Vehicle $car = bt::Vehicle($chassis);
+    array<bt::Vec3> $corners = [
+        bt::Vec3(-0.9f, 0.0f, 1.5f),
+        bt::Vec3(0.9f, 0.0f, 1.5f),
+        bt::Vec3(-0.9f, 0.0f, -1.5f),
+        bt::Vec3(0.9f, 0.0f, -1.5f)
+    ];
+
+    foreach ($corners as $i => $at) {
+        bt::Wheel $w = bt::Wheel($at, $radius: 0.4f, $restLength: 0.5f, $front: $i < 2, $stiffness: 20.0f, $frictionSlip: 1000.0f);
+        $car->add($w);
+    }
+
+    return $car;
+}
+
+test vehicle_needs_its_chassis_in_the_world
+{
+    bt::World $world = bt::World();
+    bt::Body $chassis = bt::Body(bt::Shape(box: bt::Vec3(1.0f, 0.25f, 2.0f)), 800.0f);
+    bt::Vehicle $car = bt::Vehicle($chassis);
+    status<bt::Error> $s = $world->add($car);
+    assert($s->failed());
+    bt::Error $e = $s->failure();
+    match ($e) {
+        bt::Error::chassisNotInWorld => {},
+        else => { assert(false, 'expected chassisNotInWorld'); },
+    };
+}
+
+test vehicle_rests_on_its_wheels_and_drives
+{
+    bt::World $world = bt::World();
+    bt::Vehicle $car = car($world);
+    assert($car->wheelCount() == 4);
+    assert(!$world->add($car)->failed());
+    assert($world->add($car)->failed());
+
+    run($world, 120);
+    for (usize $i = 0; $i < 4; $i++) {
+        bt::WheelState $w = $car->wheel($i);
+        assert($w->contact);
+        assert(near($w->contactPoint->y, 0.0f, 0.05f));
+    }
+    // chassis rides above the floor, not on it
+    assert($car->chassis->position()->y > 0.5f);
+    assert(near($car->speed(), 0.0f, 0.5f));
+    assert(near($car->forward()->z, 1.0f, 0.05f));
+
+    $car->setEngine(2, 1500.0f);
+    $car->setEngine(3, 1500.0f);
+    run($world, 120);
+    assert($car->speed() > 5.0f);
+    assert($car->chassis->position()->z > 1.0f);
+    assert($car->wheel(2)->engine == 1500.0f);
+
+    $car->setEngine(2, 0.0f);
+    $car->setEngine(3, 0.0f);
+    $car->setSteering(0, 0.3f);
+    $car->setSteering(1, 0.3f);
+    run($world, 60);
+    assert(near($car->wheel(0)->steering, 0.3f));
+    assert($car->chassis->position()->x > 0.1f);
+
+    for (usize $i = 0; $i < 4; $i++) {
+        $car->setBrake($i, 100.0f);
+    }
+    run($world, 240);
+    assert(near($car->speed(), 0.0f, 1.0f));
+
+    assert($world->remove($car->chassis)->failed());
+    assert(!$world->remove($car)->failed());
+    assert($world->remove($car)->failed());
+    assert(!$world->remove($car->chassis)->failed());
+}
+
+test wheels_see_through_characters
+{
+    bt::World $world = bt::World();
+    bt::Vehicle $car = car($world);
+
+    // a small character right under the front left wheel
+    bt::Character $pet = guard bt::Character::create(
+        bt::Shape(sphere: 0.1f),
+        at: bt::Transform(bt::Vec3(-0.9f, 0.1f, 1.5f))
+    ) else ($e) {
+        die("{$e}");
+    }
+    assert(!$world->add($pet)->failed());
+    assert(!$world->add($car)->failed());
+
+    run($world, 120);
+    bt::WheelState $w = $car->wheel(0);
+    assert($w->contact);
+    assert(near($w->contactPoint->y, 0.0f, 0.05f));
+}

@@ -1,0 +1,234 @@
+/**
+ * The general joint: each of the six degrees of freedom locked, limited,
+ * free, sprung or motorised on its own.
+ */
+
+namespace bt;
+
+/**
+ * Bullet's btGeneric6DofSpring2Constraint, the one to reach for. Axes
+ * with lower == upper are locked, lower > upper are free, anything else
+ * is limited. A new one has its linear axes locked and its angular axes
+ * free, so out of the box it is a ball joint.
+ */
+public class SixDof : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Frames are in each body's local space.
+     */
+    public constructor(Body $a, Body $b, frameA: Transform $frameA, frameB: Transform $frameB)
+    {
+        $this->joint = Joint(cSixDofCreate($a->raw, $b->raw, &$frameA, &$frameB), $a, $b, 'SixDof');
+    }
+
+    /**
+     * `$a` held to the world at `frame:`, in its local space, where it is
+     * right now. Limits, positions and motors are the body's own offsets
+     * from there. The world is the A side, so `setFrames` takes the world
+     * frame first.
+     */
+    public constructor(Body $a, frame: Transform $frame)
+    {
+        $this->joint = Joint(cSixDofCreate($a->raw, null, &$frame, &$frame), $a, null, 'SixDof');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    public function setFrames(Transform $frameA, Transform $frameB) : void
+    {
+        cSixDofSetFrames($this->joint->raw, &$frameA, &$frameB);
+    }
+
+    public function setLinearLowerLimit(Vec3 $lower) : void
+    {
+        cSixDofSetLinearLower($this->joint->raw, &$lower);
+    }
+
+    public function setLinearUpperLimit(Vec3 $upper) : void
+    {
+        cSixDofSetLinearUpper($this->joint->raw, &$upper);
+    }
+
+    /**
+     * Radians per angular axis.
+     */
+    public function setAngularLowerLimit(Vec3 $lower) : void
+    {
+        cSixDofSetAngularLower($this->joint->raw, &$lower);
+    }
+
+    /**
+     * The same limit with the sign convention of Bullet's older 6DoF
+     * constraint, for porting code written against it.
+     */
+    public function setAngularLowerLimitReversed(Vec3 $lower) : void
+    {
+        cSixDofSetAngularLowerReversed($this->joint->raw, &$lower);
+    }
+
+    public function setAngularUpperLimit(Vec3 $upper) : void
+    {
+        cSixDofSetAngularUpper($this->joint->raw, &$upper);
+    }
+
+    public function setAngularUpperLimitReversed(Vec3 $upper) : void
+    {
+        cSixDofSetAngularUpperReversed($this->joint->raw, &$upper);
+    }
+
+    /**
+     * Limit one degree of freedom.
+     */
+    public function setLimit(Dof $dof, float32 $low, float32 $high) : void
+    {
+        cSixDofSetLimit($this->joint->raw, $dof->value(), $low, $high);
+    }
+
+    public function setLimitReversed(Dof $dof, float32 $low, float32 $high) : void
+    {
+        cSixDofSetLimitReversed($this->joint->raw, $dof->value(), $low, $high);
+    }
+
+    /**
+     * Rebuild both frames from world axes: Z along `$axis1`, Y along
+     * `$axis2`, X completing a right-handed frame. Both frames move to the
+     * world origin, so call it while the bodies sit where they should
+     * rest.
+     */
+    public function setAxis(Vec3 $axis1, Vec3 $axis2) : void
+    {
+        cSixDofSetAxis($this->joint->raw, &$axis1, &$axis2);
+    }
+
+    /**
+     * How much of the velocity comes back when a limit is hit, 0 to 1.
+     */
+    public function setBounce(Dof $dof, float32 $bounce) : void
+    {
+        cSixDofSetBounce($this->joint->raw, $dof->value(), $bounce);
+    }
+
+    public function enableMotor(Dof $dof, bool $on) : void
+    {
+        cSixDofEnableMotor($this->joint->raw, $dof->value(), $on as uint32);
+    }
+
+    /**
+     * Drive toward `setServoTarget` instead of at `setTargetVelocity`. The
+     * motor must be enabled too.
+     */
+    public function setServo(Dof $dof, bool $on) : void
+    {
+        cSixDofSetServo($this->joint->raw, $dof->value(), $on as uint32);
+    }
+
+    public function setTargetVelocity(Dof $dof, float32 $velocity) : void
+    {
+        cSixDofSetTargetVelocity($this->joint->raw, $dof->value(), $velocity);
+    }
+
+    public function setServoTarget(Dof $dof, float32 $target) : void
+    {
+        cSixDofSetServoTarget($this->joint->raw, $dof->value(), $target);
+    }
+
+    public function setMaxMotorForce(Dof $dof, float32 $force) : void
+    {
+        cSixDofSetMaxMotorForce($this->joint->raw, $dof->value(), $force);
+    }
+
+    public function enableSpring(Dof $dof, bool $on) : void
+    {
+        cSixDofEnableSpring($this->joint->raw, $dof->value(), $on as uint32);
+    }
+
+    /**
+     * Spring stiffness. With `limitIfNeeded:` Bullet caps it where it
+     * would otherwise overshoot wildly at this time step.
+     */
+    public function setStiffness(Dof $dof, float32 $stiffness, limitIfNeeded: bool $limit = true) : void
+    {
+        cSixDofSetStiffness($this->joint->raw, $dof->value(), $stiffness, $limit as uint32);
+    }
+
+    public function setDamping(Dof $dof, float32 $damping, limitIfNeeded: bool $limit = true) : void
+    {
+        cSixDofSetDamping($this->joint->raw, $dof->value(), $damping, $limit as uint32);
+    }
+
+    /**
+     * Make the current pose the springs' rest pose on every axis.
+     */
+    public function setEquilibriumPoint() : void
+    {
+        cSixDofSetEquilibrium($this->joint->raw);
+    }
+
+    /**
+     * The current angle about one of the frame's axes, in radians.
+     */
+    public const function angle(Axis $axis) : float32
+    {
+        return cSixDofAngle($this->joint->raw, $axis->value());
+    }
+
+    /**
+     * The current offset along one of the frame's axes.
+     */
+    public const function position(Axis $axis) : float32
+    {
+        return cSixDofPosition($this->joint->raw, $axis->value());
+    }
+}
+
+/**
+ * Bullet's older btGeneric6DofSpringConstraint. Here for code ported from
+ * it; new code wants SixDof. Same defaults: linear axes locked, angular
+ * axes free.
+ */
+public class LegacySixDof : Constraint
+{
+    private Joint $joint;
+
+    public constructor(
+        Body $a,
+        Body $b,
+        frameA: Transform $frameA,
+        frameB: Transform $frameB,
+        linearFrameA: bool $linearFrameA = true
+    )
+    {
+        $this->joint = Joint(
+            cLegacySixDofCreate($a->raw, $b->raw, &$frameA, &$frameB, $linearFrameA as uint32),
+            $a,
+            $b,
+            'LegacySixDof'
+        );
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    /**
+     * Lower == upper locks an axis, lower > upper frees it.
+     */
+    public function setLinearLimit(Vec3 $lower, Vec3 $upper) : void
+    {
+        cLegacySixDofSetLinear($this->joint->raw, &$lower, &$upper);
+    }
+
+    /**
+     * Radians per axis, same rules as the linear one.
+     */
+    public function setAngularLimit(Vec3 $lower, Vec3 $upper) : void
+    {
+        cLegacySixDofSetAngular($this->joint->raw, &$lower, &$upper);
+    }
+}

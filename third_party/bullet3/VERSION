@@ -1,0 +1,7 @@
+bullet3 3.25
+https://github.com/bulletphysics/bullet3/releases/tag/3.25
+
+Only src/LinearMath, src/BulletCollision, src/BulletDynamics,
+src/BulletSoftBody and the three *All.cpp unity files are vendored.
+BulletSoftBody has no unity file upstream; module.eco globs its sources.
+Build files removed.

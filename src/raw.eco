@@ -1,0 +1,78 @@
+/**
+ * The ABI's own structs, field for field the PODs in c/bt.h. Bools cross
+ * as uint32 and ids as uint64, so these stay internal and the public
+ * types are built from them.
+ */
+
+namespace bt;
+
+internal struct RawHit
+{
+    internal uint64 $id = 0;
+    internal Vec3 $point = Vec3();
+    internal Vec3 $normal = Vec3();
+    internal float32 $fraction = 0.0f;
+}
+
+internal struct RawContact
+{
+    internal uint64 $a = 0;
+    internal uint64 $b = 0;
+    internal Vec3 $pointA = Vec3();
+    internal Vec3 $pointB = Vec3();
+    internal Vec3 $normal = Vec3();
+    internal float32 $distance = 0.0f;
+    internal float32 $impulse = 0.0f;
+}
+
+internal struct RawEvent
+{
+    internal uint64 $a = 0;
+    internal uint64 $b = 0;
+    internal uint32 $began = 0;
+}
+
+internal struct RawSolver
+{
+    internal int32 $iterations = 0;
+    internal float32 $erp = 0.0f;
+    internal float32 $erp2 = 0.0f;
+    internal float32 $cfm = 0.0f;
+    internal float32 $frictionErp = 0.0f;
+    internal float32 $warmStarting = 0.0f;
+    internal float32 $restitutionThreshold = 0.0f;
+    internal float32 $splitThreshold = 0.0f;
+    internal uint32 $splitImpulse = 0;
+    internal int32 $minimumBatch = 0;
+}
+
+internal struct RawWheel
+{
+    internal Vec3 $connection = Vec3();
+    internal Vec3 $direction = Vec3();
+    internal Vec3 $axle = Vec3();
+    internal float32 $restLength = 0.0f;
+    internal float32 $radius = 0.0f;
+    internal float32 $stiffness = 0.0f;
+    internal float32 $compression = 0.0f;
+    internal float32 $relaxation = 0.0f;
+    internal float32 $frictionSlip = 0.0f;
+    internal float32 $rollInfluence = 0.0f;
+    internal float32 $maxTravelCm = 0.0f;
+    internal float32 $maxForce = 0.0f;
+    internal uint32 $front = 0;
+}
+
+internal struct RawWheelState
+{
+    internal Transform $transform = Transform();
+    internal Vec3 $contactPoint = Vec3();
+    internal Vec3 $contactNormal = Vec3();
+    internal float32 $rotation = 0.0f;
+    internal float32 $steering = 0.0f;
+    internal float32 $suspension = 0.0f;
+    internal float32 $skid = 0.0f;
+    internal float32 $engine = 0.0f;
+    internal float32 $brake = 0.0f;
+    internal uint32 $contact = 0;
+}

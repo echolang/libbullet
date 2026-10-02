@@ -1,0 +1,522 @@
+/**
+ * A rigid body. Mass zero is static: it collides but never moves. Add it
+ * to a World to simulate it; until then it is just a shape at a place.
+ */
+
+namespace bt;
+
+public class Body
+{
+    internal const ptr<eco_bt_body> $raw;
+    public const Shape $shape;
+
+    public constructor(Shape $shape, float32 $mass = 0.0f, at: Transform $at = Transform())
+    {
+        $this->shape = $shape;
+        $this->raw = live(cBodyCreate($shape->raw, $mass, &$at), 'out of memory creating a body');
+    }
+
+    destructor()
+    {
+        cBodyDestroy($this->raw);
+    }
+
+    /**
+     * Unique for the life of the process, so a map keyed by it can carry
+     * your own data per body.
+     */
+    public const function id() : uint64
+    {
+        return cBodyId($this->raw);
+    }
+
+    /**
+     * Your own index for this body, -1 until you set one. `World::moving`
+     * reports it with each pose, so a table of your own per body is one
+     * index away, with no id lookup.
+     */
+    public const function slot() : int32
+    {
+        return cBodySlot($this->raw);
+    }
+
+    public function setSlot(int32 $slot) : void
+    {
+        cBodySetSlot($this->raw, $slot);
+    }
+
+    /**
+     * Whether the world's debug drawer draws this body, on by default. Turn it off for a body
+     * whose wireframe would swamp the overlay, such as a large heightfield.
+     */
+    public function setDebugDraw(bool $on) : void
+    {
+        cBodySetDebugDraw($this->raw, $on as uint32);
+    }
+
+    public const function kind() : BodyKind
+    {
+        BodyKind $kind = guard BodyKind::from(cBodyKind($this->raw)) else {
+            die('bt: the shim reported an unknown body kind');
+        }
+
+        return $kind;
+    }
+
+    /**
+     * A kinematic body has mass zero and moves only where you put it, by
+     * `moveTo` each step, while pushing dynamic bodies out of its way. It
+     * sleeps once it stops being moved, like any body, so call `moveTo`
+     * only when it moves: an awake kinematic body keeps everything it
+     * touches awake.
+     * Turning it off leaves a static body; `setMass` makes it dynamic
+     * again. Change it while the body is out of any world, or remove and
+     * re-add it, so Bullet files it under the right group.
+     */
+    public function setKinematic(bool $on) : void
+    {
+        cBodySetKinematic($this->raw, $on as uint32);
+    }
+
+    /**
+     * Where a kinematic body should be at the end of the next step. Bullet
+     * works out its velocity from the move, so what it pushes gets pushed
+     * properly. For teleporting, `setTransform`.
+     */
+    public function moveTo(Transform $at) : void
+    {
+        cBodyMove($this->raw, &$at);
+    }
+
+    /**
+     * A sensor still collides, and shows up in contacts and events, but
+     * nothing bounces off it: a trigger volume.
+     */
+    public const function sensor() : bool
+    {
+        return cBodySensor($this->raw) != 0;
+    }
+
+    public function setSensor(bool $on) : void
+    {
+        cBodySetSensor($this->raw, $on as uint32);
+    }
+
+    /**
+     * Where the body is. Interpolated between fixed steps, so it is the
+     * one to render.
+     */
+    public const function transform() : Transform
+    {
+        $out = Transform();
+        cBodyTransform($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Teleport the body. It does not sweep through what lies between, and
+     * it wakes up.
+     */
+    public function setTransform(Transform $at) : void
+    {
+        cBodySetTransform($this->raw, &$at);
+    }
+
+    public const function position() : Vec3
+    {
+        return $this->transform()->origin;
+    }
+
+    public function setPosition(Vec3 $position) : void
+    {
+        $t = $this->transform();
+        $t->origin = $position;
+        $this->setTransform($t);
+    }
+
+    public const function rotation() : Quat
+    {
+        return $this->transform()->rotation;
+    }
+
+    public function setRotation(Quat $rotation) : void
+    {
+        $t = $this->transform();
+        $t->rotation = $rotation;
+        $this->setTransform($t);
+    }
+
+    /**
+     * The transform as a column-major 4x4 matrix, for a model uniform.
+     */
+    public const function matrix() : fixed_array<float32, 16>
+    {
+        return $this->transform()->matrix();
+    }
+
+    public const function velocity() : Vec3
+    {
+        $out = Vec3();
+        cBodyVelocity($this->raw, &$out);
+        return $out;
+    }
+
+    public function setVelocity(Vec3 $velocity) : void
+    {
+        cBodySetVelocity($this->raw, &$velocity);
+    }
+
+    /**
+     * Radians per second around each world axis.
+     */
+    public const function angularVelocity() : Vec3
+    {
+        $out = Vec3();
+        cBodyAngularVelocity($this->raw, &$out);
+        return $out;
+    }
+
+    public function setAngularVelocity(Vec3 $velocity) : void
+    {
+        cBodySetAngularVelocity($this->raw, &$velocity);
+    }
+
+    /**
+     * The velocity of the point `at:` an offset from the centre of mass,
+     * in world orientation: linear plus what the spin adds there.
+     */
+    public const function velocity(at: Vec3 $offset) : Vec3
+    {
+        $out = Vec3();
+        cBodyVelocityAt($this->raw, &$offset, &$out);
+        return $out;
+    }
+
+    public const function mass() : float32
+    {
+        return cBodyMass($this->raw);
+    }
+
+    /**
+     * New mass, inertia recomputed from the shape. Switching between zero
+     * and non-zero mass while the body is in a world needs a remove and an
+     * add, which is how Bullet re-sorts static and dynamic bodies.
+     */
+    public function setMass(float32 $mass) : void
+    {
+        cBodySetMass($this->raw, $mass);
+    }
+
+    /**
+     * Zero for a static or kinematic body.
+     */
+    public const function inverseMass() : float32
+    {
+        return cBodyInverseMass($this->raw);
+    }
+
+    public const function localInertia() : Vec3
+    {
+        $out = Vec3();
+        cBodyLocalInertia($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * The inverse of the principal inertia in the body frame, zero for a
+     * static or kinematic body. The world tensor is `R diag(this) R^T`, so
+     * an impulse taken into the body frame needs no matrix at all.
+     */
+    public const function inverseInertia() : Vec3
+    {
+        $out = Vec3();
+        cBodyInverseInertia($this->raw, &$out);
+        return $out;
+    }
+
+    public const function friction() : float32
+    {
+        return cBodyFriction($this->raw);
+    }
+
+    public function setFriction(float32 $friction) : void
+    {
+        cBodySetFriction($this->raw, $friction);
+    }
+
+    /**
+     * Friction scaled per local axis: (1, 0.1, 1) slides easily along Y.
+     */
+    public function setAnisotropicFriction(Vec3 $friction) : void
+    {
+        cBodySetAnisotropicFriction($this->raw, &$friction);
+    }
+
+    public const function rollingFriction() : float32
+    {
+        return cBodyRollingFriction($this->raw);
+    }
+
+    public function setRollingFriction(float32 $friction) : void
+    {
+        cBodySetRollingFriction($this->raw, $friction);
+    }
+
+    public const function spinningFriction() : float32
+    {
+        return cBodySpinningFriction($this->raw);
+    }
+
+    public function setSpinningFriction(float32 $friction) : void
+    {
+        cBodySetSpinningFriction($this->raw, $friction);
+    }
+
+    /**
+     * Bounciness. Bullet multiplies both bodies' values, so a bouncing
+     * ball needs a floor with restitution too.
+     */
+    public const function restitution() : float32
+    {
+        return cBodyRestitution($this->raw);
+    }
+
+    public function setRestitution(float32 $restitution) : void
+    {
+        cBodySetRestitution($this->raw, $restitution);
+    }
+
+    /**
+     * Velocity lost per second, 0 to 1, for linear and angular motion.
+     */
+    public function setDamping(float32 $linear, angular: float32 $angular) : void
+    {
+        cBodySetDamping($this->raw, $linear, $angular);
+    }
+
+    public const function linearDamping() : float32
+    {
+        return cBodyLinearDamping($this->raw);
+    }
+
+    public const function angularDamping() : float32
+    {
+        return cBodyAngularDamping($this->raw);
+    }
+
+    /**
+     * Soft contacts: a spring of `$stiffness` with `damping:` instead of
+     * Bullet's rigid contact response.
+     */
+    public function setContactStiffness(float32 $stiffness, damping: float32 $damping) : void
+    {
+        cBodySetContactStiffness($this->raw, $stiffness, $damping);
+    }
+
+    /**
+     * A force through the centre of mass for the next step. Forces are
+     * cleared after every step, so apply it every frame you want it.
+     */
+    public function applyForce(Vec3 $force) : void
+    {
+        cBodyApplyCentralForce($this->raw, &$force);
+    }
+
+    /**
+     * A force applied `at:` an offset from the centre of mass, in world
+     * orientation. Off centre it also spins the body.
+     */
+    public function applyForce(Vec3 $force, at: Vec3 $offset) : void
+    {
+        cBodyApplyForce($this->raw, &$force, &$offset);
+    }
+
+    /**
+     * An instant change in momentum through the centre of mass.
+     */
+    public function applyImpulse(Vec3 $impulse) : void
+    {
+        cBodyApplyCentralImpulse($this->raw, &$impulse);
+    }
+
+    public function applyImpulse(Vec3 $impulse, at: Vec3 $offset) : void
+    {
+        cBodyApplyImpulse($this->raw, &$impulse, &$offset);
+    }
+
+    public function applyTorque(Vec3 $torque) : void
+    {
+        cBodyApplyTorque($this->raw, &$torque);
+    }
+
+    public function applyTorqueImpulse(Vec3 $torque) : void
+    {
+        cBodyApplyTorqueImpulse($this->raw, &$torque);
+    }
+
+    /**
+     * `applyImpulse` without the wake. A sleeping body stays asleep (the
+     * push only shows once something wakes it) and an awake one keeps its
+     * sleep timer, so a body held still by small pushes every step still
+     * falls asleep: a suspension spring under a parked car.
+     */
+    public function push(Vec3 $impulse, at: Vec3 $offset) : void
+    {
+        cBodyPush($this->raw, &$impulse, &$offset);
+    }
+
+    /**
+     * A quiet impulse through the centre of mass.
+     */
+    public function push(Vec3 $impulse) : void
+    {
+        cBodyPushCentral($this->raw, &$impulse);
+    }
+
+    /**
+     * A quiet torque impulse.
+     */
+    public function pushTorque(Vec3 $torque) : void
+    {
+        cBodyPushTorque($this->raw, &$torque);
+    }
+
+    /**
+     * The forces applied for the coming step, gravity included.
+     */
+    public const function totalForce() : Vec3
+    {
+        $out = Vec3();
+        cBodyTotalForce($this->raw, &$out);
+        return $out;
+    }
+
+    public const function totalTorque() : Vec3
+    {
+        $out = Vec3();
+        cBodyTotalTorque($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Drop every force and torque applied since the last step.
+     */
+    public function clearForces() : void
+    {
+        cBodyClearForces($this->raw);
+    }
+
+    public const function gravity() : Vec3
+    {
+        $out = Vec3();
+        cBodyGravity($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Gravity of its own. It sticks: the world no longer overwrites it,
+     * not on add and not on World::setGravity.
+     */
+    public function setGravity(Vec3 $gravity) : void
+    {
+        cBodySetGravity($this->raw, &$gravity);
+    }
+
+    /**
+     * How much each world axis of linear motion is let through, 0 to 1.
+     * (1, 1, 0) keeps the body in the XY plane, for a 2D game.
+     */
+    public const function linearFactor() : Vec3
+    {
+        $out = Vec3();
+        cBodyLinearFactor($this->raw, &$out);
+        return $out;
+    }
+
+    public function setLinearFactor(Vec3 $factor) : void
+    {
+        cBodySetLinearFactor($this->raw, &$factor);
+    }
+
+    /**
+     * The same for rotation about each world axis. (0, 1, 0) lets a
+     * capsule turn but never tip over.
+     */
+    public const function angularFactor() : Vec3
+    {
+        $out = Vec3();
+        cBodyAngularFactor($this->raw, &$out);
+        return $out;
+    }
+
+    public function setAngularFactor(Vec3 $factor) : void
+    {
+        cBodySetAngularFactor($this->raw, &$factor);
+    }
+
+    /**
+     * Continuous collision for fast, small bodies: once the body moves
+     * more than `$threshold` in a step, Bullet sweeps a sphere of
+     * `radius:` along its path so it cannot tunnel through walls. A
+     * threshold of zero turns it off.
+     */
+    public function setCcd(float32 $threshold, radius: float32 $radius) : void
+    {
+        cBodySetCcd($this->raw, $threshold, $radius);
+    }
+
+    /**
+     * Below these linear and angular speeds for `bt::sleepSeconds()` (two
+     * by default), the body falls asleep. Bullet's defaults are 0.8 and 1.0.
+     */
+    public function setSleepThresholds(float32 $linear, angular: float32 $angular) : void
+    {
+        cBodySetSleepThresholds($this->raw, $linear, $angular);
+    }
+
+    /**
+     * The box around the body where it is now.
+     */
+    public const function aabb() : Aabb
+    {
+        $out = Aabb();
+        cBodyAabb($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * Wake the body. Bullet puts bodies to sleep once they stop moving;
+     * every apply and set call here wakes them for you.
+     */
+    public function activate() : void
+    {
+        cBodyActivate($this->raw);
+    }
+
+    /**
+     * Put the body to sleep now. Anything that touches it wakes it again.
+     */
+    public function sleep() : void
+    {
+        cBodySleep($this->raw);
+    }
+
+    /**
+     * Never let the body sleep. For player controllers and anything you
+     * drive by hand every frame.
+     */
+    public function setAlwaysAwake(bool $on) : void
+    {
+        cBodySetAlwaysAwake($this->raw, $on as uint32);
+    }
+
+    public const function awake() : bool
+    {
+        return cBodyAwake($this->raw) != 0;
+    }
+
+    internal const function inWorld() : bool
+    {
+        return cBodyInWorld($this->raw) != 0;
+    }
+}

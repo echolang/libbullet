@@ -1,0 +1,884 @@
+/**
+ * The simulation. A discrete dynamics world with Bullet's default
+ * collision setup and a DBVT broadphase, able to carry soft bodies too.
+ *
+ * Queries hand their results back through a buffer the world keeps, so
+ * one World is not safe to query from two threads at once.
+ */
+
+namespace bt;
+
+public class World
+{
+    private const ptr<eco_bt_world> $raw;
+    private map<uint64, Body> $bodies = map<uint64, Body>();
+    private array<Joint> $joints = array<Joint>();
+    private map<uint64, Ghost> $ghosts = map<uint64, Ghost>();
+    private map<uint64, Character> $characters = map<uint64, Character>();
+    private array<Vehicle> $vehicles = array<Vehicle>();
+    private map<uint64, SoftBody> $softs = map<uint64, SoftBody>();
+    private array<ContactEvent> $pending = array<ContactEvent>();
+
+    // scratch the fill-into queries reuse, so a query allocates nothing once they have grown
+    private array<RawEvent> $rawEvents = array<RawEvent>();
+    private array<RawHit> $rawHits = array<RawHit>();
+    private array<uint64> $rawIds = array<uint64>();
+
+    /**
+     * Earth gravity along -Y unless you say otherwise, and Bullet's
+     * sequential impulse solver unless you pick another.
+     */
+    public constructor(gravity: Vec3 $gravity = Vec3(0.0f, -9.81f, 0.0f), solver: SolverKind $solver = .sequential)
+    {
+        $this->raw = live(cWorldCreate(&$gravity, $solver->value()), 'out of memory creating a world');
+    }
+
+    /**
+     * A world whose step runs on `$threads` threads of the process task scheduler (clamped to
+     * `bt::maxThreads()`): the collision pairs, the islands and the integration split across
+     * them. The step still returns only once it is done, so queries and reads around it are
+     * unchanged. Rigid bodies only, with the sequential impulse solver, and not bit-exact against
+     * a one-thread world. Asks for more than one thread; with a single one there is nothing to
+     * split, so build the plain world.
+     */
+    public constructor(gravity: Vec3 $gravity = Vec3(0.0f, -9.81f, 0.0f), threads: int32 $threads)
+    {
+        assert($threads > 1, 'bt: a parallel world wants more than one thread');
+        $this->raw = live(cWorldCreateParallel(&$gravity, $threads), 'no parallel world: out of memory, or Bullet runs on one thread here');
+    }
+
+    /**
+     * Bullet lets go of everything first, then the world goes. What was
+     * in it lives on for as long as you hold it.
+     */
+    destructor()
+    {
+        cWorldDestroy($this->raw);
+    }
+
+    public const function gravity() : Vec3
+    {
+        $out = Vec3();
+        cWorldGravity($this->raw, &$out);
+        return $out;
+    }
+
+    /**
+     * New gravity for everything without gravity of its own. Sleeping
+     * bodies do not notice until something wakes them.
+     */
+    public function setGravity(Vec3 $gravity) : void
+    {
+        cWorldSetGravity($this->raw, &$gravity);
+    }
+
+    /**
+     * Advance by `$dt` seconds of wall time, in fixed steps of `$fixedStep`,
+     * at most `$maxSubSteps` of them. Returns how many fixed steps ran.
+     * Leftover time is interpolated into every Body's transform, so pass
+     * your frame time as it is.
+     */
+    public function step(float32 $dt, int32 $maxSubSteps = 1, float32 $fixedStep = 1.0f / 60.0f) : int32
+    {
+        return cWorldStep($this->raw, $dt, $maxSubSteps, $fixedStep);
+    }
+
+    /**
+     * Exactly one step of `$dt` seconds: no accumulator, no leftover and
+     * no interpolation, so `Body::transform` is where the step left each
+     * body. For a caller that runs its own fixed passes and interpolates
+     * on its own side.
+     */
+    public function advance(float32 $dt) : void
+    {
+        cWorldAdvance($this->raw, $dt);
+    }
+
+    /**
+     * Every awake dynamic body as its slot and where the last step left
+     * it, into `$into` (cleared first). Sleeping, static and kinematic
+     * bodies are left out, so the cost is what moved, not what exists.
+     * Reuses the array's room: reserve it once and a call allocates
+     * nothing.
+     */
+    public function moving(array<BodyPose>& $into) : void
+    {
+        $into->clear();
+        usize $n = cWorldMoving($this->raw, $into->spare(), $into->room());
+        if ($n > $into->room()) {
+            $into->reserve($n);
+            $n = cWorldMoving($this->raw, $into->spare(), $into->room());
+        }
+
+        $into->commit($n);
+    }
+
+    /**
+     * Recompute `$body`'s broadphase box now. Needed after moving a static body by hand while
+     * `setUpdateAllAabbs(false)`, which keeps a step from recomputing every static box.
+     */
+    public function refresh(Body $body) : void
+    {
+        if (!$this->bodies->has($body->id())) {
+            return;
+        }
+
+        cWorldRefresh($this->raw, $body->raw);
+    }
+
+    /**
+     * Room for `bodies:` bodies, so adding up to that many grows neither
+     * this world's tables nor Bullet's object array.
+     */
+    public function reserve(bodies: usize $count) : void
+    {
+        $this->bodies->reserve($count);
+        cWorldReserve($this->raw, $count as int32);
+    }
+
+    public const function solver() : SolverSettings
+    {
+        $raw = RawSolver();
+        cWorldSolver($this->raw, &$raw);
+        return SolverSettings($raw);
+    }
+
+    public function setSolver(SolverSettings $settings) : void
+    {
+        $raw = $settings->raw();
+        cWorldSetSolver($this->raw, &$raw);
+    }
+
+    /**
+     * Drop every force applied since the last step, on every body.
+     */
+    public function clearForces() : void
+    {
+        cWorldClearForces($this->raw);
+    }
+
+    /**
+     * Bullet skips the bounding box update for sleeping and static
+     * bodies. Turn this on if you move static bodies by hand.
+     */
+    public function setUpdateAllAabbs(bool $on) : void
+    {
+        cWorldSetUpdateAllAabbs($this->raw, $on as uint32);
+    }
+
+    /**
+     * The air soft bodies move through, 1.2 by default. Drag and lift
+     * scale with it.
+     */
+    public function setAirDensity(float32 $density) : void
+    {
+        cWorldSetAirDensity($this->raw, $density);
+    }
+
+    // bodies
+
+    /**
+     * Start simulating `$body`, in the group Bullet picks: dynamic bodies
+     * collide with everything, static ones with everything but statics.
+     * A body lives in one world at a time.
+     */
+    public function add(Body $body) : status<Error>
+    {
+        guard $this->admit($body) else ($e) {
+            return .error($e);
+        }
+
+        $this->bodies[$body->id()] = $body;
+        cWorldAddBody($this->raw, $body->raw);
+        return .ok;
+    }
+
+    /**
+     * Start simulating `$body` in `group:`, colliding only with what is in
+     * `mask:`.
+     */
+    public function add(Body $body, group: Layer $group, mask: Layer $mask = .all()) : status<Error>
+    {
+        guard $this->admit($body) else ($e) {
+            return .error($e);
+        }
+
+        $this->bodies[$body->id()] = $body;
+        cWorldAddBodyFiltered($this->raw, $body->raw, $group->bits, $mask->bits);
+        return .ok;
+    }
+
+    /**
+     * Stop simulating `$body`. It keeps its transform and velocity and can
+     * be added back later. Pairs it was touching end, and show up in the
+     * next `events`. Refused while a joint, a vehicle or a soft body
+     * anchor in this world still uses it: remove those first.
+     */
+    public function remove(Body $body) : status<Error>
+    {
+        uint64 $id = $body->id();
+        if (!$this->bodies->has($id)) {
+            return .error(.notInWorld);
+        }
+
+        if ($this->uses($body)) {
+            return .error(.inUse);
+        }
+
+        cWorldRemoveBody($this->raw, $body->raw);
+        $this->drain();
+        $this->bodies->remove($id);
+        return .ok;
+    }
+
+    /**
+     * How many bodies this world simulates.
+     */
+    public const function count() : usize
+    {
+        return $this->bodies->count();
+    }
+
+    /**
+     * Every body in the world, in no particular order.
+     */
+    public const function bodies() : array<Body>
+    {
+        return $this->bodies->values();
+    }
+
+    /**
+     * Whether a joint, vehicle or soft body in this world would be left
+     * pointing at `$body` if it went.
+     */
+    private const function uses(Body $body) : bool
+    {
+        foreach ($this->joints as $joint) {
+            if ($joint->holds($body)) {
+                return true;
+            }
+        }
+
+        foreach ($this->vehicles as $vehicle) {
+            if ($vehicle->chassis->raw == $body->raw) {
+                return true;
+            }
+        }
+
+        foreach ($this->softs as $soft) {
+            if ($soft->holds($body)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private const function admit(Body $body) : status<Error>
+    {
+        if ($body->inWorld()) {
+            return .error(.alreadyInWorld);
+        }
+
+        if ($body->kind() == BodyKind::dynamic && $body->shape->staticOnly()) {
+            return .error(.staticOnly);
+        }
+
+        return .ok;
+    }
+
+    // constraints
+
+    /**
+     * Constrain two bodies. With `noCollide:` the pair stops colliding with
+     * each other, which is usually what a joint wants.
+     */
+    public function add(Constraint $constraint, noCollide: bool $noCollide = false) : status<Error>
+    {
+        $joint = $constraint->joint();
+        $raw = $joint->raw;
+
+        foreach ($this->joints as $held) {
+            if ($held->raw == $raw) {
+                return .error(.alreadyInWorld);
+            }
+        }
+
+        $this->joints[] = $joint;
+        cWorldAddConstraint($this->raw, $raw, $noCollide as uint32);
+        return .ok;
+    }
+
+    public function remove(Constraint $constraint) : status<Error>
+    {
+        $joint = $constraint->joint();
+        $raw = $joint->raw;
+
+        for (usize $i = 0; $i < $this->joints->count(); $i++) {
+            if ($this->joints[$i]->raw == $raw) {
+                cWorldRemoveConstraint($this->raw, $raw);
+                $this->joints->remove($i);
+                return .ok;
+            }
+        }
+
+        return .error(.notInWorld);
+    }
+
+    // ghosts
+
+    public function add(Ghost $ghost) : status<Error>
+    {
+        return $this->add($ghost, group: .sensor(), mask: .all());
+    }
+
+    /**
+     * Watch for bodies in `group:` terms: the ghost sees what is in
+     * `mask:` and whose own mask has `group:`.
+     */
+    public function add(Ghost $ghost, group: Layer $group, mask: Layer $mask = .all()) : status<Error>
+    {
+        if ($ghost->inWorld()) {
+            return .error(.alreadyInWorld);
+        }
+
+        $this->ghosts[$ghost->id()] = $ghost;
+        cWorldAddGhost($this->raw, $ghost->raw, $group->bits, $mask->bits);
+        return .ok;
+    }
+
+    public function remove(Ghost $ghost) : status<Error>
+    {
+        uint64 $id = $ghost->id();
+        if (!$this->ghosts->has($id)) {
+            return .error(.notInWorld);
+        }
+
+        cWorldRemoveGhost($this->raw, $ghost->raw);
+        $this->ghosts->remove($id);
+        return .ok;
+    }
+
+    /**
+     * The bodies whose bounding boxes overlap the ghost's, as of the last
+     * step. Cheap, and generous: a body can overlap without touching.
+     */
+    public const function overlaps(Ghost $ghost) : array<Body>
+    {
+        if (!$this->ghosts->has($ghost->id())) {
+            return array<Body>();
+        }
+
+        return $this->ghostIds($ghost, cGhostOverlaps($ghost->raw));
+    }
+
+    /**
+     * The bodies really inside the ghost, as of the last step. Empty for
+     * a ghost in another world: the answer lives in the world's pair
+     * cache.
+     */
+    public const function touching(Ghost $ghost) : array<Body>
+    {
+        if (!$this->ghosts->has($ghost->id())) {
+            return array<Body>();
+        }
+
+        return $this->ghostIds($ghost, cGhostTouching($ghost->raw, $this->raw));
+    }
+
+    // characters
+
+    /**
+     * A character collides with static and dynamic bodies, and is seen by
+     * anything whose mask has the character group.
+     */
+    public function add(Character $character) : status<Error>
+    {
+        return $this->add($character, group: .character(), mask: Layer::fixed() | Layer::standard());
+    }
+
+    public function add(Character $character, group: Layer $group, mask: Layer $mask = .all()) : status<Error>
+    {
+        if ($character->inWorld()) {
+            return .error(.alreadyInWorld);
+        }
+
+        $this->characters[$character->id()] = $character;
+        cWorldAddCharacter($this->raw, $character->raw, $group->bits, $mask->bits);
+        return .ok;
+    }
+
+    public function remove(Character $character) : status<Error>
+    {
+        uint64 $id = $character->id();
+        if (!$this->characters->has($id)) {
+            return .error(.notInWorld);
+        }
+
+        cWorldRemoveCharacter($this->raw, $character->raw);
+        $this->characters->remove($id);
+        return .ok;
+    }
+
+    // vehicles
+
+    /**
+     * Start driving `$vehicle`. Its chassis must already be in this world,
+     * and stays awake from now on.
+     */
+    public function add(Vehicle $vehicle) : status<Error>
+    {
+        if ($vehicle->inWorld()) {
+            return .error(.alreadyInWorld);
+        }
+
+        $chassis = $vehicle->chassis;
+        if (!$this->bodies->has($chassis->id())) {
+            return .error(.chassisNotInWorld);
+        }
+
+        $this->vehicles[] = $vehicle;
+        cWorldAddVehicle($this->raw, $vehicle->raw);
+        return .ok;
+    }
+
+    /**
+     * Stop driving `$vehicle`. Its chassis stays in the world as a plain
+     * body.
+     */
+    public function remove(Vehicle $vehicle) : status<Error>
+    {
+        for (usize $i = 0; $i < $this->vehicles->count(); $i++) {
+            if ($this->vehicles[$i]->raw == $vehicle->raw) {
+                cWorldRemoveVehicle($this->raw, $vehicle->raw);
+                $this->vehicles->remove($i);
+                return .ok;
+            }
+        }
+
+        return .error(.notInWorld);
+    }
+
+    // soft bodies
+
+    public function add(SoftBody $soft) : status<Error>
+    {
+        return $this->add($soft, group: .standard(), mask: .all());
+    }
+
+    public function add(SoftBody $soft, group: Layer $group, mask: Layer $mask = .all()) : status<Error>
+    {
+        if ($soft->inWorld()) {
+            return .error(.alreadyInWorld);
+        }
+
+        if (cWorldAddSoft($this->raw, $soft->raw, $group->bits, $mask->bits) == 0) {
+            return .error(.rigidOnly);
+        }
+
+        $this->softs[$soft->id()] = $soft;
+        return .ok;
+    }
+
+    public function remove(SoftBody $soft) : status<Error>
+    {
+        uint64 $id = $soft->id();
+        if (!$this->softs->has($id)) {
+            return .error(.notInWorld);
+        }
+
+        cWorldRemoveSoft($this->raw, $soft->raw);
+        $this->softs->remove($id);
+        return .ok;
+    }
+
+    // queries
+
+    /**
+     * The closest body between `$from` and `$to`, or null for a clear
+     * line. Only bodies in `mask:` count, and never `ignore:`: a ray cast
+     * from inside a body (a wheel from its chassis) passes through it.
+     */
+    public const function ray(Vec3 $from, Vec3 $to, mask: Layer $mask = .all(), ignore: Body? $ignore = null) : RayHit?
+    {
+        $raw = RawHit();
+        ptr<eco_bt_body> $skip = $ignore?->raw ?? null;
+
+        if (cWorldRay($this->raw, &$from, &$to, $mask->bits, $skip, &$raw) == 0) {
+            return null;
+        }
+
+        return $this->hit($raw);
+    }
+
+    /**
+     * Every body between `$from` and `$to`, nearest first.
+     */
+    public const function rays(Vec3 $from, Vec3 $to, mask: Layer $mask = .all()) : array<RayHit>
+    {
+        usize $n = cWorldRays($this->raw, &$from, &$to, $mask->bits);
+        $raw = room<RawHit>($n);
+        cWorldHitsCopy($this->raw, $raw->spare(), $n);
+        $raw->commit($n);
+
+        $out = arr::room<RayHit>($n);
+        foreach ($raw as $h) {
+            RayHit $hit = guard $this->hit($h) else {
+                continue;
+            }
+
+            $out[] = $hit;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Every body between `$from` and `$to`, nearest first, into `$into`
+     * (cleared first). Allocates nothing once the buffers have grown.
+     */
+    public function rays(Vec3 $from, Vec3 $to, into: array<RayHit>& $into, mask: Layer $mask = .all()) : void
+    {
+        $into->clear();
+        usize $n = cWorldRays($this->raw, &$from, &$to, $mask->bits);
+        $this->rawHits->clear();
+        $this->rawHits->reserve($n);
+        cWorldHitsCopy($this->raw, $this->rawHits->spare(), $n);
+        $this->rawHits->commit($n);
+
+        $into->reserve($n);
+        foreach ($this->rawHits as $h) {
+            RayHit $hit = guard $this->hit($h) else {
+                continue;
+            }
+
+            $into[] = $hit;
+        }
+    }
+
+    /**
+     * Move a convex `$shape` from one transform to another and report the
+     * first body it would touch, or null. A thick ray: for a character's
+     * ground check, a bullet with a radius, a camera that should not clip.
+     *
+     * With `facing:` only surfaces the shape moves into count. A shape
+     * that starts inside a body would otherwise hit it at once and never
+     * get out; facing, it can back away. Collide and slide wants this.
+     * `ignore:` never counts, as for `ray`.
+     */
+    public const function sweep(
+        Shape $shape,
+        from: Transform $from,
+        to: Transform $to,
+        mask: Layer $mask = .all(),
+        facing: bool $facing = false,
+        ignore: Body? $ignore = null
+    ) : result<SweepHit?, Error>
+    {
+        if (!$shape->convex()) {
+            return .error(.notConvex);
+        }
+
+        $raw = RawHit();
+        ptr<eco_bt_body> $skip = $ignore?->raw ?? null;
+
+        if (cWorldSweep($this->raw, $shape->raw, &$from, &$to, $mask->bits, $facing as uint32, $skip, &$raw) == 0) {
+            return .ok(null);
+        }
+
+        Body $body = guard $this->body($raw->id) else {
+            return .ok(null);
+        }
+
+        return .ok(SweepHit($body, $raw->point, $raw->normal, $raw->fraction));
+    }
+
+    /**
+     * The bodies `$shape` would touch if it were placed `at:` there. Works
+     * for any shape, not only convex ones.
+     */
+    public const function overlap(Shape $shape, at: Transform $at, mask: Layer $mask = .all()) : array<Body>
+    {
+        usize $n = cWorldOverlap($this->raw, $shape->raw, &$at, $mask->bits);
+        return $this->ids($n);
+    }
+
+    /**
+     * The bodies `$shape` would touch placed `at:` there, into `$into`
+     * (cleared first). Allocates nothing once the buffers have grown.
+     */
+    public function overlap(
+        Shape $shape,
+        at: Transform $at,
+        into: array<Body>& $into,
+        mask: Layer $mask = .all()
+    ) : void
+    {
+        usize $n = cWorldOverlap($this->raw, $shape->raw, &$at, $mask->bits);
+        $this->takeIds($n, $into);
+    }
+
+    /**
+     * The bodies whose bounding boxes overlap `inside:` a box. Only a
+     * broadphase test, so fast and generous.
+     */
+    public const function bodies(inside: Aabb $box, mask: Layer $mask = .all()) : array<Body>
+    {
+        usize $n = cWorldAabbTest($this->raw, &$box, $mask->bits);
+        return $this->ids($n);
+    }
+
+    /**
+     * Every contact point between two bodies as of the last step.
+     */
+    public const function contacts() : array<Contact>
+    {
+        usize $n = cWorldTouching($this->raw);
+        return $this->contactsOf($n);
+    }
+
+    /**
+     * Where `$body` touches anything in `mask:`, computed now. `a` is
+     * always `$body`.
+     */
+    public const function contacts(Body $body, mask: Layer $mask = .all()) : array<Contact>
+    {
+        usize $n = cWorldBodyContacts($this->raw, $body->raw, $mask->bits);
+        return $this->contactsOf($n);
+    }
+
+    /**
+     * Where `$a` and `$b` touch, computed now.
+     */
+    public const function contacts(Body $a, Body $b) : array<Contact>
+    {
+        usize $n = cWorldPairContacts($this->raw, $a->raw, $b->raw);
+        return $this->contactsOf($n);
+    }
+
+    /**
+     * Start or stop collecting began and ended events. Tracking diffs the
+     * touching pairs after every fixed step, so an event is never missed
+     * between two calls to `events`.
+     */
+    public function trackContacts(bool $on = true) : void
+    {
+        cWorldTrackContacts($this->raw, $on as uint32);
+    }
+
+    /**
+     * Every pair of bodies that started or stopped touching since the
+     * last call, oldest first. A pair begins once it overlaps and ends
+     * once it has drifted apart past Bullet's contact threshold, so a
+     * resting pair does not flicker.
+     */
+    public function events() : array<ContactEvent>
+    {
+        $this->drain();
+        $out = $this->pending;
+        $this->pending = array<ContactEvent>();
+        return $out;
+    }
+
+    /**
+     * The pending events into `$into` (cleared first), oldest first, as
+     * `events()` hands them back. Allocates nothing once the buffers have
+     * grown.
+     */
+    public function events(into: array<ContactEvent>& $into) : void
+    {
+        $into->clear();
+        $this->drain();
+        $into->reserve($this->pending->count());
+        foreach ($this->pending as $e) {
+            $into[] = $e;
+        }
+
+        $this->pending->clear();
+    }
+
+    // debug
+
+    /**
+     * Turn the debug drawer on. `debugLines` then has something to say.
+     */
+    public function enableDebug(DebugOptions $options = DebugOptions()) : void
+    {
+        cWorldDebugMode(
+            $this->raw,
+            $options->wireframe as uint32,
+            $options->aabb as uint32,
+            $options->contacts as uint32,
+            $options->constraints as uint32
+        );
+    }
+
+    public function disableDebug() : void
+    {
+        cWorldDebugMode($this->raw, 0, 0, 0, 0);
+    }
+
+    /**
+     * The world as line segments, for a debug overlay. Six floats per
+     * vertex, x y z r g b, two vertices per line. Empty while the drawer
+     * is off.
+     */
+    public function debugLines() : array<float32>
+    {
+        usize $n = cWorldDebugDraw($this->raw);
+        $out = room<float32>($n);
+        cWorldDebugCopy($this->raw, $out->spare(), $n);
+        $out->commit($n);
+        return $out;
+    }
+
+    /**
+     * The debug lines into `$into` (cleared first), laid out as
+     * `debugLines()` does. Allocates nothing once the buffer has grown.
+     */
+    public function debugLines(into: array<float32>& $into) : void
+    {
+        $into->clear();
+        usize $n = cWorldDebugDraw($this->raw);
+        $into->reserve($n);
+        cWorldDebugCopy($this->raw, $into->spare(), $n);
+        $into->commit($n);
+    }
+
+    /**
+     * Move the shim's queued events into `$pending` while every body they
+     * name can still be found. The shim only tracks pairs of bodies.
+     */
+    private function drain() : void
+    {
+        usize $n = cWorldEvents($this->raw);
+        $this->rawEvents->clear();
+        $this->rawEvents->reserve($n);
+        cWorldEventsTake($this->raw, $this->rawEvents->spare(), $n);
+        $this->rawEvents->commit($n);
+
+        foreach ($this->rawEvents as $e) {
+            Body $a = guard $this->body($e->a) else {
+                continue;
+            }
+
+            Body $b = guard $this->body($e->b) else {
+                continue;
+            }
+
+            if ($e->began != 0) {
+                $this->pending[] = ContactEvent::began($a, $b);
+            } else {
+                $this->pending[] = ContactEvent::ended($a, $b);
+            }
+        }
+    }
+
+    /**
+     * The body with `$id`, if it is in this world.
+     */
+    private const function body(uint64 $id) : Body?
+    {
+        if (!$this->bodies->has($id)) {
+            return null;
+        }
+
+        return $this->bodies->get($id);
+    }
+
+    /**
+     * The bodies behind the last `$n` query ids.
+     */
+    private const function ids(usize $n) : array<Body>
+    {
+        $ids = room<uint64>($n);
+        cWorldIdsCopy($this->raw, $ids->spare(), $n);
+        $ids->commit($n);
+        return $this->resolve($ids);
+    }
+
+    /**
+     * The bodies behind the last `$n` query ids, into `$into` (cleared
+     * first), through the id scratch.
+     */
+    private function takeIds(usize $n, array<Body>& $into) : void
+    {
+        $into->clear();
+        $this->rawIds->clear();
+        $this->rawIds->reserve($n);
+        cWorldIdsCopy($this->raw, $this->rawIds->spare(), $n);
+        $this->rawIds->commit($n);
+
+        $into->reserve($n);
+        foreach ($this->rawIds as $id) {
+            Body $body = guard $this->body($id) else {
+                continue;
+            }
+
+            $into[] = $body;
+        }
+    }
+
+    /**
+     * The bodies behind the ghost's last `$n` overlap or touching ids.
+     */
+    private const function ghostIds(Ghost $ghost, usize $n) : array<Body>
+    {
+        $ids = room<uint64>($n);
+        cGhostOverlapsCopy($ghost->raw, $ids->spare(), $n);
+        $ids->commit($n);
+        return $this->resolve($ids);
+    }
+
+    private const function resolve(const array<uint64>& $ids) : array<Body>
+    {
+        $out = arr::room<Body>($ids->count());
+        foreach ($ids as $id) {
+            Body $body = guard $this->body($id) else {
+                continue;
+            }
+
+            $out[] = $body;
+        }
+
+        return $out;
+    }
+
+    /**
+     * A ray hit on a body in this world, or null for one that is not.
+     */
+    private const function hit(const RawHit& $raw) : RayHit?
+    {
+        Body $body = guard $this->body($raw->id) else {
+            return null;
+        }
+
+        return RayHit($body, $raw->point, $raw->normal, $raw->fraction);
+    }
+
+    /**
+     * The last `$n` query contacts, between bodies only.
+     */
+    private const function contactsOf(usize $n) : array<Contact>
+    {
+        $raw = room<RawContact>($n);
+        cWorldContactsCopy($this->raw, $raw->spare(), $n);
+        $raw->commit($n);
+
+        $out = arr::room<Contact>($n);
+        foreach ($raw as $c) {
+            Body $a = guard $this->body($c->a) else {
+                continue;
+            }
+
+            Body $b = guard $this->body($c->b) else {
+                continue;
+            }
+
+            $out[] = Contact($a, $b, $c->pointA, $c->pointB, $c->normal, $c->distance, $c->impulse);
+        }
+
+        return $out;
+    }
+}
+

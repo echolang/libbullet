@@ -1,0 +1,262 @@
+use std::math;
+
+test point_to_point_keeps_distance
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::PointToPoint $joint = bt::PointToPoint($p[0], $p[1], pivotA: bt::Vec3(), pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f));
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 30);
+    bt::Vec3 $at = $p[1]->position();
+    assert($at->y < -0.1f);
+
+    // a point joint is soft at 60 Hz; it stretches a little mid swing
+    assert(near($at->length(), 1.0f, 0.15f));
+}
+
+test hinge_swings_about_its_axis
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::Hinge $hinge = bt::Hinge(
+        $p[0],
+        $p[1],
+        pivotA: bt::Vec3(),
+        pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f),
+        axisA: bt::Vec3(0.0f, 0.0f, 1.0f),
+        axisB: bt::Vec3(0.0f, 0.0f, 1.0f)
+    );
+    guard $world->add($hinge, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 30);
+    bt::Vec3 $at = $p[1]->position();
+    assert($at->x < 0.99f);
+    assert(near($at->z, 0.0f));
+    assert(near($at->length(), 1.0f, 0.05f));
+    assert(math::abs($hinge->angle()) > 0.1f);
+}
+
+test hinge_limit_holds
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::Hinge $hinge = bt::Hinge(
+        $p[0],
+        $p[1],
+        pivotA: bt::Vec3(),
+        pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f),
+        axisA: bt::Vec3(0.0f, 0.0f, 1.0f),
+        axisB: bt::Vec3(0.0f, 0.0f, 1.0f)
+    );
+    $hinge->setLimit(-0.2f, 0.2f);
+    guard $world->add($hinge, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 120);
+    assert(math::abs($hinge->angle()) < 0.3f);
+}
+
+test slider_moves_along_rail
+{
+    bt::World $world = bt::World(gravity: bt::Vec3(-9.81f, 0.0f, 0.0f));
+    array<bt::Body> $p = pendulum($world);
+    bt::Slider $slider = bt::Slider(
+        $p[0],
+        $p[1],
+        frameA: bt::Transform(),
+        frameB: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f))
+    );
+    $slider->setLinearLimit(-2.0f, 2.0f);
+    $slider->setAngularLimit(0.0f, 0.0f);
+    guard $world->add($slider, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 60);
+    assert(near($p[1]->position()->y, 0.0f));
+    assert($p[1]->position()->x < 0.9f);
+    assert($slider->position() < -0.1f);
+}
+
+test sixdof_locks_and_frees
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::SixDof $joint = bt::SixDof(
+        $p[0],
+        $p[1],
+        frameA: bt::Transform(),
+        frameB: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f))
+    );
+
+    // free fall along y only
+    $joint->setLinearLowerLimit(bt::Vec3(0.0f, 1.0f, 0.0f));
+    $joint->setLinearUpperLimit(bt::Vec3(0.0f, -1.0f, 0.0f));
+    $joint->setAngularLowerLimit(bt::Vec3());
+    $joint->setAngularUpperLimit(bt::Vec3());
+    $joint->setLimit(.linearY, -0.5f, 0.5f);
+    $joint->setBounce(.linearY, 0.0f);
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 120);
+    bt::Vec3 $at = $p[1]->position();
+    assert(near($at->x, 1.0f));
+    assert(near($at->y, -0.5f, 0.1f));
+}
+
+test sixdof_spring_pulls_back
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    array<bt::Body> $p = pendulum($world);
+    bt::SixDof $joint = bt::SixDof(
+        $p[0],
+        $p[1],
+        frameA: bt::Transform(),
+        frameB: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f))
+    );
+    $joint->setAngularLowerLimit(bt::Vec3());
+    $joint->setAngularUpperLimit(bt::Vec3());
+    $joint->setLimit(.linearX, 1.0f, -1.0f);
+    $joint->enableSpring(.linearX, true);
+    $joint->setStiffness(.linearX, 50.0f);
+    $joint->setDamping(.linearX, 5.0f, limitIfNeeded: false);
+    $joint->setEquilibriumPoint();
+    $joint->setBounce(.linearX, 0.0f);
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    $p[1]->applyImpulse(bt::Vec3(2.0f, 0.0f, 0.0f));
+    run($world, 10);
+    assert($p[1]->position()->x > 1.1f);
+
+    run($world, 300);
+    assert(near($p[1]->position()->x, 1.0f, 0.05f));
+}
+
+test sixdof_motor_turns
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    array<bt::Body> $p = pendulum($world);
+    bt::SixDof $joint = bt::SixDof(
+        $p[0],
+        $p[1],
+        frameA: bt::Transform(),
+        frameB: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f))
+    );
+    $joint->setFrames(bt::Transform(), bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f)));
+    $joint->setAngularLowerLimitReversed(bt::Vec3());
+    $joint->setAngularUpperLimitReversed(bt::Vec3());
+    $joint->setLimitReversed(.angularY, 1.0f, -1.0f);
+    $joint->enableMotor(.angularY, true);
+    $joint->setServo(.angularY, false);
+    $joint->setMaxMotorForce(.angularY, 10.0f);
+    $joint->setTargetVelocity(.angularY, 1.0f);
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 60);
+    bt::Vec3 $at = $p[1]->position();
+    assert(math::abs($p[1]->angularVelocity()->y) > 0.5f);
+    assert(math::abs($at->z) > 0.1f);
+    assert(near($at->length(), 1.0f, 0.05f));
+}
+
+test sixdof_servo_reaches_target
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    array<bt::Body> $p = pendulum($world);
+    bt::SixDof $joint = bt::SixDof(
+        $p[0],
+        $p[1],
+        frameA: bt::Transform(),
+        frameB: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f))
+    );
+    $joint->setAngularLowerLimit(bt::Vec3());
+    $joint->setAngularUpperLimit(bt::Vec3());
+    $joint->setLimit(.linearX, 1.0f, -1.0f);
+    $joint->enableMotor(.linearX, true);
+    $joint->setServo(.linearX, true);
+    $joint->setServoTarget(.linearX, 0.5f);
+    $joint->setTargetVelocity(.linearX, 1.0f);
+    $joint->setMaxMotorForce(.linearX, 50.0f);
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 180);
+    assert(near($p[1]->position()->x, 1.5f));
+}
+
+test sixdof_set_axis_reaims_the_frame
+{
+    bt::World $world = bt::World(gravity: bt::Vec3());
+    array<bt::Body> $p = pendulum($world);
+    bt::SixDof $joint = bt::SixDof($p[0], $p[1], frameA: bt::Transform(), frameB: bt::Transform());
+
+    // frame Z now runs along world X, and both frames sit at the origin:
+    // 1 m from the bob's centre, so a servo target of 0.5 puts it at 1.5
+    $joint->setAxis(bt::Vec3(1.0f, 0.0f, 0.0f), bt::Vec3(0.0f, 1.0f, 0.0f));
+    $joint->setAngularLowerLimit(bt::Vec3());
+    $joint->setAngularUpperLimit(bt::Vec3());
+    $joint->setLimit(.linearZ, 1.0f, -1.0f);
+    $joint->enableMotor(.linearZ, true);
+    $joint->setServo(.linearZ, true);
+    $joint->setServoTarget(.linearZ, 0.5f);
+    $joint->setTargetVelocity(.linearZ, 1.0f);
+    $joint->setMaxMotorForce(.linearZ, 50.0f);
+    guard $world->add($joint, noCollide: true) else ($e) {
+        die("{$e}");
+    }
+
+    run($world, 180);
+    bt::Vec3 $at = $p[1]->position();
+    assert(near($at->x, 1.5f));
+    assert(near($at->z, 0.0f));
+}
+
+test legacy_sixdof_is_a_ball_joint_by_default
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::LegacySixDof $joint = bt::LegacySixDof(
+        $p[0],
+        $p[1],
+        frameA: bt::Transform(),
+        frameB: bt::Transform(bt::Vec3(-1.0f, 0.0f, 0.0f))
+    );
+    guard $world->add($joint) else ($e) {
+        die("{$e}");
+    }
+
+    // linear axes start locked, angular ones free
+    run($world, 30);
+    bt::Vec3 $at = $p[1]->position();
+    assert($at->y < -0.1f);
+    assert(near($at->length(), 1.0f, 0.15f));
+}
+
+test constraint_add_remove_bookkeeping
+{
+    bt::World $world = bt::World();
+    array<bt::Body> $p = pendulum($world);
+    bt::PointToPoint $joint = bt::PointToPoint($p[0], $p[1], pivotA: bt::Vec3(), pivotB: bt::Vec3(-1.0f, 0.0f, 0.0f));
+
+    assert($world->remove($joint)->failed());
+    assert(!$world->add($joint)->failed());
+    assert($world->add($joint)->failed());
+    assert(!$world->remove($joint)->failed());
+    assert($world->remove($joint)->failed());
+
+    run($world, 30);
+    assert($p[1]->position()->y < -0.5f);
+}

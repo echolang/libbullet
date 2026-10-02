@@ -1,0 +1,67 @@
+/**
+ * A ball joint: one point on each body held together, free rotation.
+ */
+
+namespace bt;
+
+public class PointToPoint : Constraint
+{
+    private Joint $joint;
+
+    /**
+     * Pivots are in each body's local space.
+     */
+    public constructor(Body $a, Body $b, pivotA: Vec3 $pivotA, pivotB: Vec3 $pivotB)
+    {
+        $this->joint = Joint(cPointCreate($a->raw, $b->raw, &$pivotA, &$pivotB), $a, $b, 'point constraint');
+    }
+
+    /**
+     * `$a` hangs from the world at `pivot:`, in its local space, wherever
+     * that point is right now.
+     */
+    public constructor(Body $a, pivot: Vec3 $pivot)
+    {
+        $this->joint = Joint(cPointCreate($a->raw, null, &$pivot, &$pivot), $a, null, 'point constraint');
+    }
+
+    public const function joint() : Joint
+    {
+        return $this->joint;
+    }
+
+    public const function pivotA() : Vec3
+    {
+        $a = Vec3();
+        $b = Vec3();
+        cPointPivots($this->joint->raw, &$a, &$b);
+        return $a;
+    }
+
+    /**
+     * B's pivot, in B's local space, or in world space for a joint to the
+     * world. Move it to drag the body along.
+     */
+    public const function pivotB() : Vec3
+    {
+        $a = Vec3();
+        $b = Vec3();
+        cPointPivots($this->joint->raw, &$a, &$b);
+        return $b;
+    }
+
+    public function setPivots(Vec3 $pivotA, Vec3 $pivotB) : void
+    {
+        cPointSetPivots($this->joint->raw, &$pivotA, &$pivotB);
+    }
+
+    /**
+     * Bullet's own tuning: `$tau` is how hard the error is pulled back,
+     * `damping:` how much velocity it bleeds, `impulseClamp:` caps each
+     * step's impulse (0 is no cap).
+     */
+    public function setTuning(float32 $tau, damping: float32 $damping = 1.0f, impulseClamp: float32 $clamp = 0.0f) : void
+    {
+        cPointSetTuning($this->joint->raw, $tau, $damping, $clamp);
+    }
+}

@@ -1,0 +1,23 @@
+test ball_lands_on_heightfield
+{
+    // a 3 x 3 grid, flat at 1.0 but for one low corner
+    array<float32> $heights = [0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f];
+    bt::Shape $terrain = guard bt::Shape::heightfield(3, 3, $heights) else ($e) {
+        die("{$e}");
+    }
+    $terrain->setScaling(bt::Vec3(10.0f, 1.0f, 10.0f));
+
+    bt::World $world = bt::World();
+    bt::Body $ground = bt::Body($terrain, at: bt::Transform(bt::Vec3(0.0f, 0.5f, 0.0f)));
+    bt::Body $ball = bt::Body(bt::Shape(sphere: 0.5f), 1.0f, at: bt::Transform(bt::Vec3(5.0f, 5.0f, 5.0f)));
+    assert(!$world->add($ground)->failed());
+    assert(!$world->add($ball)->failed());
+
+    run($world, 240);
+    assert(near($ball->position()->y, 1.5f, 0.1f));
+
+    bt::RayHit $hit = guard $world->ray(bt::Vec3(5.0f, 10.0f, 5.0f), bt::Vec3(5.0f, -10.0f, 5.0f)) else {
+        die('expected to hit terrain or ball');
+    }
+    assert($hit->point->y > 1.0f);
+}

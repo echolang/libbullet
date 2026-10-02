@@ -1,0 +1,14 @@
+/**
+ * What the debug drawer outputs. Wireframe and constraints are the
+ * useful default; AABBs and contact points get noisy fast.
+ */
+
+namespace bt;
+
+public struct DebugOptions
+{
+    public bool $wireframe = true;
+    public bool $constraints = true;
+    public bool $aabb = false;
+    public bool $contacts = false;
+}

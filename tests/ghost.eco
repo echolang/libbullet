@@ -1,0 +1,41 @@
+test ghost_sees_what_falls_through
+{
+    bt::World $world = groundWorld();
+    // a zone from y = 0.2 to 2.2, clear of the ground so only balls touch it
+    bt::Ghost $zone = bt::Ghost(bt::Shape(box: bt::Vec3(1.0f, 1.0f, 1.0f)), at: bt::Transform(bt::Vec3(0.0f, 1.2f, 0.0f)));
+    assert(!$world->add($zone)->failed());
+    assert($world->add($zone)->failed());
+
+    bt::Body $inside = bt::Body(bt::Shape(sphere: 0.3f), 1.0f, at: bt::Transform(bt::Vec3(0.0f, 4.0f, 0.0f)));
+    bt::Body $outside = bt::Body(bt::Shape(sphere: 0.3f), 1.0f, at: bt::Transform(bt::Vec3(5.0f, 4.0f, 0.0f)));
+    assert(!$world->add($inside)->failed());
+    assert(!$world->add($outside)->failed());
+
+    assert($world->touching($zone)->empty());
+    run($world, 120);
+
+    // the ball lands inside the zone and rests there: ghosts do not push
+    assert(near($inside->position()->y, 0.3f, 0.05f));
+    array<bt::Body> $in = $world->touching($zone);
+    assert($in->count() == 1);
+    assert($in[0]->id() == $inside->id());
+
+    // the ground plane's box overlaps everything; the outside ball does not
+    foreach ($world->overlaps($zone) as $b) {
+        assert($b->id() != $outside->id());
+    }
+
+    $zone->setPosition(bt::Vec3(5.0f, 1.2f, 0.0f));
+    run($world, 2);
+    array<bt::Body> $moved = $world->touching($zone);
+    assert($moved->count() == 1);
+    assert($moved[0]->id() == $outside->id());
+
+    bt::World $other = bt::World();
+    assert($other->touching($zone)->empty());
+    assert($other->overlaps($zone)->empty());
+
+    assert(!$world->remove($zone)->failed());
+    assert($world->remove($zone)->failed());
+    assert($world->touching($zone)->empty());
+}
