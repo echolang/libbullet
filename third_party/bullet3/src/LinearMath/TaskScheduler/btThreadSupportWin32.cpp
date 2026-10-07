@@ -342,11 +342,15 @@ void btThreadSupportWin32::startThreads(const ConstructionInfo& threadConstructi
 
 		threadStatus.m_userPtr = 0;
 
+		// libbullet: the events are unnamed. A named event is system-wide, so a second process with
+		// the same scheduler opened the same events: its runTask woke this process's worker with no
+		// task (the worker exits) and stopThreads then waited forever for that worker. The names are
+		// still written for a debugger.
 		sprintf(threadStatus.m_eventStartHandleName, "es%.8s%d%d", threadConstructionInfo.m_uniqueName, uniqueId, i);
-		threadStatus.m_eventStartHandle = CreateEventA(0, false, false, threadStatus.m_eventStartHandleName);
+		threadStatus.m_eventStartHandle = CreateEventA(0, false, false, NULL);
 
 		sprintf(threadStatus.m_eventCompleteHandleName, "ec%.8s%d%d", threadConstructionInfo.m_uniqueName, uniqueId, i);
-		threadStatus.m_eventCompleteHandle = CreateEventA(0, false, false, threadStatus.m_eventCompleteHandleName);
+		threadStatus.m_eventCompleteHandle = CreateEventA(0, false, false, NULL);
 
 		m_completeHandles[i] = threadStatus.m_eventCompleteHandle;
 
